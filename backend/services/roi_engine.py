@@ -14,6 +14,7 @@ def simulate_roi(
     annual_tanker_volume_litres: float = 1333333.3,
     annual_municipal_spend: float = 46000.0,
     annual_opex_inr: Optional[float] = None,
+    annual_usable_yield_litres: Optional[float] = None,
 ) -> ROIResponse:
     """
     Simulate a multi-year ROI for a rainwater harvesting system.
@@ -35,9 +36,14 @@ def simulate_roi(
     - Returns cumulative_without_rwh / cumulative_with_rwh for break-even chart.
     """
     annual_demand_litres = daily_demand_lpd * 365
-    # The annual yield already comes from the roof/rainfall calculation.
-    # Deterministic simulation assumes an ideal seasonal buffer up to annual demand.
-    effective_annual_yield = min(annual_yield_litres, annual_demand_litres)
+    # Preferred callers pass daily-water-balance output.  The legacy annual
+    # yield path remains only for backward compatibility and is an upper bound.
+    candidate_yield = (
+        annual_usable_yield_litres
+        if annual_usable_yield_litres is not None
+        else annual_yield_litres
+    )
+    effective_annual_yield = min(candidate_yield, annual_demand_litres)
 
     # Volumetric offsets
     offset_tanker = min(effective_annual_yield, annual_tanker_volume_litres)

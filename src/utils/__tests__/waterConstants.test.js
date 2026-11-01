@@ -39,12 +39,12 @@ describe('waterConstants and demand calculations', () => {
       // 3. Adjusted demand (with 1.10 peak buffer): 62,100 * 1.10 = 68,310 L
       expect(result.adjustedDemand).toBe(68310);
 
-      // 4. Potable component: 68,310 * (70 / 135) = 35,420 L
-      expect(result.potableDemand).toBe(Math.round(68310 * (70 / 135)));
-
-      // 5. Non-potable component: adjustedDemand - potableDemand
-      expect(result.nonPotableDemand).toBe(result.adjustedDemand - result.potableDemand);
-      expect(result.potableDemand + result.nonPotableDemand).toBe(result.adjustedDemand);
+      // End-use RWH target is fixed at 65 LPCD. Design allowances remain
+      // available separately and do not inflate water that RWH may offset.
+      expect(result.potableDemand).toBe(28000);
+      expect(result.nonPotableDemand).toBe(26000);
+      expect(result.bufferedPotableDemand).toBe(Math.round(68310 * (70 / 135)));
+      expect(result.bufferedPotableDemand + result.bufferedNonPotableDemand).toBe(68310);
     });
 
     it('bypasses UFW losses when includeLosses is false', () => {
@@ -59,7 +59,8 @@ describe('waterConstants and demand calculations', () => {
 
       // Adjusted without UFW: 54,000 * 1.10 = 59,400 L
       expect(result.adjustedDemand).toBe(59400);
-      expect(result.potableDemand + result.nonPotableDemand).toBe(59400);
+      expect(result.potableDemand).toBe(28000);
+      expect(result.nonPotableDemand).toBe(26000);
     });
 
     it('uses half-up rounding to match the backend at demand tie boundaries', () => {
@@ -70,8 +71,8 @@ describe('waterConstants and demand calculations', () => {
       });
 
       expect(result.adjustedDemand).toBe(149);
-      expect(result.potableDemand).toBe(77);
-      expect(result.nonPotableDemand).toBe(72);
+      expect(result.potableDemand).toBe(70);
+      expect(result.nonPotableDemand).toBe(65);
     });
 
     it('handles zero occupants gracefully', () => {

@@ -141,12 +141,33 @@ class MonteCarloIntegrationTests(unittest.TestCase):
         self.assertLess(res["median_breakeven_year"], 10)
         self.assertNotEqual(res["median_breakeven_year"] % 1, 0)
 
-    def test_demand_rounding_matches_javascript_half_up(self):
+    def test_fixed_rwh_target_is_not_inflated_by_system_design_allowances(self):
         result = calculate_demand(1, occupants_per_flat=1, include_losses=False)
 
         self.assertEqual(result["daily_demand_lpd"], 149.0)
-        self.assertEqual(result["potable_demand_lpd"], 77.0)
-        self.assertEqual(result["non_potable_demand_lpd"], 72.0)
+        self.assertEqual(result["potable_demand_lpd"], 70.0)
+        self.assertEqual(result["non_potable_demand_lpd"], 65.0)
+        self.assertEqual(result["buffered_non_potable_demand_lpd"], 72.0)
+
+    def test_daily_monte_carlo_respects_tank_capacity(self):
+        # One 100 mm storm followed by a dry year: the 100 L tank cannot
+        # serve the same annual demand as the 10,000 L tank.
+        common = {
+            "rooftop_area_m2": 100,
+            "monthly_demand_kl": 12,
+            "capex_inr": 1000,
+            "annual_tanker_volume_litres": 1_000_000,
+            "tanker_rate_per_kl": 1000,
+            "annual_opex_inr": 0,
+            "n_scenarios": 100,
+            "rainfall_by_year": {2021: [100.0] + [0.0] * 364},
+        }
+        small = run_monte_carlo(**common, tank_capacity_litres=100)
+        large = run_monte_carlo(**common, tank_capacity_litres=10_000)
+
+        self.assertEqual(small["scenarios_used"], "historical_daily_bootstrap")
+        self.assertTrue(small["is_site_specific"])
+        self.assertGreater(small["median_breakeven_year"], large["median_breakeven_year"])
 
     def test_rainfall_and_coastal_schema_boundaries(self):
         rainfall = [1.0] * 11 + [0.0]

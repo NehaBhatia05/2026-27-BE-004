@@ -39,11 +39,13 @@ def calculate_demand(
     after_ufw = base * (1 + UFW_LOSS_FACTOR) if include_losses else base
     adjusted_demand = _round_half_up(after_ufw * DEMAND_BUFFER_FACTOR)
 
-    # Potable (70 LPCD) vs Non-Potable (65 LPCD) breakdown
-    # If lpcd is overridden, scale proportionately
+    # The UFW and peak factors are *system design allowances*, not additional
+    # end-use consumption.  RWH feasibility is therefore capped at the stated
+    # 65 LPCD non-potable end-use target, while the buffered split is retained
+    # separately for total-system planning/audit display.
     potable_ratio = POTABLE_LPCD / IS_LPCD
-    adjusted_potable = _round_half_up(adjusted_demand * potable_ratio)
-    adjusted_non_potable = adjusted_demand - adjusted_potable
+    buffered_potable = _round_half_up(adjusted_demand * potable_ratio)
+    buffered_non_potable = adjusted_demand - buffered_potable
 
     base_potable = total_occupants * POTABLE_LPCD
     base_non_potable = total_occupants * NON_POTABLE_LPCD
@@ -53,8 +55,10 @@ def calculate_demand(
         "base_demand_lpd": _round_half_up(base, 2),
         "daily_demand_lpd": float(adjusted_demand),
         "daily_demand_with_buffer_lpd": float(adjusted_demand),
-        "potable_demand_lpd": float(adjusted_potable),
-        "non_potable_demand_lpd": float(adjusted_non_potable),
+        "potable_demand_lpd": float(base_potable),
+        "non_potable_demand_lpd": float(base_non_potable),
+        "buffered_potable_demand_lpd": float(buffered_potable),
+        "buffered_non_potable_demand_lpd": float(buffered_non_potable),
         "base_potable_demand_lpd": _round_half_up(base_potable, 2),
         "base_non_potable_demand_lpd": _round_half_up(base_non_potable, 2),
         "potable_lpcd": POTABLE_LPCD,

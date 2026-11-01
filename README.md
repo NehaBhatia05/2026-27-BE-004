@@ -16,7 +16,7 @@ The application is designed for feasibility screening and committee decision sup
 
 - **Virtual Meter:** Calculate baseline daily and annual demand using IS:1172-style 135 LPCD demand, optional 15% UFW losses, and a 10% peak-demand buffer.
 - **Billing and tanker analysis:** Record municipal bills, tanker counts, tanker capacity, and tanker spend to quantify current water costs.
-- **Monthly water audit:** Review recorded municipal, tanker, and borewell volumes while preserving unknown values as unavailable instead of assuming zero.
+- **Monthly water audit:** Review available municipal, tanker, and borewell volumes. Phase 1 does not ask users for municipal or borewell volumes; absent values remain unknown rather than being assumed zero.
 - **Map Studio:** Trace a rooftop catchment polygon on a Leaflet satellite map and calculate geodesic area with Turf.js.
 - **Rainfall and yield estimation:** Fetch historical precipitation from Open-Meteo and convert monthly rainfall into harvestable yield.
 - **Rainfall forecasting:** Forecast monthly rainfall with seasonal Auto-SARIMA when the forecasting dependencies and data support it.

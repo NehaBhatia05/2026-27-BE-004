@@ -14,8 +14,11 @@ Method mirrors the Colab notebook (Cell 10).
 import numpy as np
 import csv
 import os
+from calendar import monthrange
 from math import isfinite
 from typing import Optional
+
+from services.tank_sizer import simulate_tank_year
 
 
 # ---------------------------------------------------------------------------
@@ -68,15 +71,16 @@ def run_monte_carlo(
     usability_factor: float = 0.80,
     runoff_coeff: float = 0.90,
     annual_opex_inr: Optional[float] = None,
+    rainfall_by_year: Optional[dict[int, list[float]]] = None,
+    first_flush_fraction: float = 0.05,
 ) -> dict:
     """
     Run the Monte Carlo ROI simulation.
 
     For each scenario:
-      1. Sample monthly rainfall from U[P10, P90] for each of 12 months.
-      2. Convert to monthly yield using the physics formula.
-      3. Demand-gate: usable_yield = min(yield, eligible non-potable monthly demand).
-      4. Compute annual usable yield (KL).
+      1. Bootstrap a complete historical daily rainfall year when available.
+      2. Run the shared daily storage, overflow, and demand balance.
+      3. Compute annual usable yield (KL).
       5. Run the 10-year ROI loop and find break-even year.
 
     Args:
@@ -102,7 +106,17 @@ def run_monte_carlo(
           "is_site_specific": bool,
         }
     """
-    if monthly_rainfall_mm is not None:
+    if rainfall_by_year:
+        invalid_years = [
+            year for year, rainfall in rainfall_by_year.items()
+            if len(rainfall) not in (365, 366)
+            or any(not isfinite(value) or value < 0 for value in rainfall)
+        ]
+        if invalid_years:
+            raise ValueError("rainfall_by_year must contain complete finite daily rainfall years.")
+        rainfall_baseline = None
+        scenario_source = "historical_daily_bootstrap"
+    elif monthly_rainfall_mm is not None:
         if len(monthly_rainfall_mm) != 12 or any(
             not isfinite(value) or value < 0 for value in monthly_rainfall_mm
         ):
@@ -119,7 +133,14 @@ def run_monte_carlo(
 
     for _ in range(n_scenarios):
         # ── Sample 12 monthly rainfall values ──────────────────────────────
-        if rainfall_baseline is not None:
+        if rainfall_by_year:
+            selected_year = int(rng.choice(list(rainfall_by_year)))
+            daily_rain_mm = np.asarray(rainfall_by_year[selected_year], dtype=float)
+            # A small multiplicative perturbation preserves each observed
+            # storm sequence while representing inter-annual uncertainty.
+            daily_rain_mm *= rng.uniform(0.8, 1.2)
+            balance_year = selected_year
+        elif rainfall_baseline is not None:
             monthly_rain_mm = np.array([
                 rng.uniform(max(0.0, value * 0.8), value * 1.2)
                 for value in rainfall_baseline
@@ -147,31 +168,30 @@ def run_monte_carlo(
                 rng.uniform(0, 15),    # Dec
             ])
 
-        # ── Physics yield formula ──────────────────────────────────────────
-        monthly_yield_kl = (
-            rooftop_area_m2
-            * np.maximum(monthly_rain_mm, 0)
-            * usability_factor
-            * runoff_coeff
-            / 1000.0
-        )
-        monthly_yield_kl *= 1 - (rainfall_reduction_percent / 100.0)
+        if not rainfall_by_year:
+            # Monthly sources are retained only as a compatibility fallback.
+            # Spread each monthly total across real calendar days, then use the
+            # same daily tank engine as sizing and deterministic ROI.
+            daily_rain_mm = np.concatenate([
+                np.full(monthrange(2021, month)[1], rainfall / monthrange(2021, month)[1])
+                for month, rainfall in enumerate(monthly_rain_mm, start=1)
+            ])
+            balance_year = 2021
 
-        # ── Monthly tank water balance ─────────────────────────────────────
-        # Carry storage between months so the requested tank capacity affects
-        # how much rainy-season water can serve later demand.
-        tank_level_litres = 0.0
-        monthly_demand_litres = monthly_demand_kl * 1000.0
-        annual_usable_litres = 0.0
-        for monthly_inflow_kl in monthly_yield_kl:
-            available_litres = tank_level_litres + float(monthly_inflow_kl) * 1000.0
-            served_litres = min(available_litres, monthly_demand_litres)
-            annual_usable_litres += served_litres
-            tank_level_litres = min(
-                max(0.0, available_litres - served_litres),
-                tank_capacity_litres,
-            )
-        annual_usable_kl = annual_usable_litres / 1000.0
+        daily_rain_mm *= 1 - (rainfall_reduction_percent / 100.0)
+        balance = simulate_tank_year(
+            rainfall_mm=daily_rain_mm.tolist(),
+            tank_capacity_litres=tank_capacity_litres,
+            # Match tank sizing and deterministic ROI: the eligible end-use
+            # demand is an annual 65-LPCD target spread over 365 days.
+            daily_demand_litres=monthly_demand_kl * 1000.0 * 12.0 / 365.0,
+            usable_roof_area_sqm=rooftop_area_m2 * usability_factor,
+            runoff_coefficient=runoff_coeff,
+            first_flush_fraction=first_flush_fraction,
+            year=balance_year,
+            recharge_enabled=False,
+        )
+        annual_usable_kl = balance.useful_water_litres / 1000.0
 
         # ── 10-year ROI loop ───────────────────────────────────────────────
         annual_opex = (
@@ -230,5 +250,5 @@ def run_monte_carlo(
         "n_scenarios":           n_scenarios,
         "never_break_even_pct":  round(float((~valid_mask).mean()) * 100, 1),
         "scenarios_used":        scenario_source,
-        "is_site_specific":       rainfall_baseline is not None,
+        "is_site_specific":       rainfall_baseline is not None or rainfall_by_year is not None,
     }

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Building2, Zap, Plus, Trash2, Droplets, TrendingUp, Calculator } from 'lucide-react';
 import { useWaterWallet } from '../context/WaterWalletContext';
+import { useAuth } from '../context/AuthContext';
 import { fetchSocietyBaseline, createSociety, getSociety, getSocietyFromDatabase, getLatestSocietyAnalysis, getSocietyWaterAudit, updateSociety, saveBillingEntries, fetchSocieties, fetchDatabaseSocieties } from '../api/waterwallet';
 import {
   IS_LPCD,
@@ -26,18 +27,18 @@ const YEARS = Array.from({ length: 4 }, (_, i) => String(currentYear - i));
 
 // ─── Pre-filled dummy billing rows (1 year of logs: Jan to Dec)
 const defaultBillingRows = [
-  { id: 1,  month: 'January',   year: '2025', bill: '14200', tankers: 16, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 2,  month: 'February',  year: '2025', bill: '14500', tankers: 18, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 3,  month: 'March',     year: '2025', bill: '15800', tankers: 22, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 4,  month: 'April',     year: '2025', bill: '17200', tankers: 24, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 5,  month: 'May',       year: '2025', bill: '18500', tankers: 25, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 6,  month: 'June',      year: '2025', bill: '16900', tankers: 21, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 7,  month: 'July',      year: '2025', bill: '14000', tankers: 15, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 8,  month: 'August',    year: '2025', bill: '13800', tankers: 15, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 9,  month: 'September', year: '2025', bill: '14100', tankers: 16, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 10, month: 'October',   year: '2025', bill: '15200', tankers: 19, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 11, month: 'November',  year: '2025', bill: '14800', tankers: 20, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
-  { id: 12, month: 'December', year: '2025', bill: '14400', tankers: 17, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
+  { id: 1,  month: 'January',   year: '2025', bill: '14200', tankers: 16, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 2,  month: 'February',  year: '2025', bill: '14500', tankers: 18, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 3,  month: 'March',     year: '2025', bill: '15800', tankers: 22, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 4,  month: 'April',     year: '2025', bill: '17200', tankers: 24, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 5,  month: 'May',       year: '2025', bill: '18500', tankers: 25, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 6,  month: 'June',      year: '2025', bill: '16900', tankers: 21, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 7,  month: 'July',      year: '2025', bill: '14000', tankers: 15, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 8,  month: 'August',    year: '2025', bill: '13800', tankers: 15, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 9,  month: 'September', year: '2025', bill: '14100', tankers: 16, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 10, month: 'October',   year: '2025', bill: '15200', tankers: 19, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 11, month: 'November',  year: '2025', bill: '14800', tankers: 20, costPerTanker: '1500', tankerCapacity: 10000 },
+  { id: 12, month: 'December', year: '2025', bill: '14400', tankers: 17, costPerTanker: '1500', tankerCapacity: 10000 },
 ];
 
 // ─── Toggle Switch ──────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ let nextId = 100;
 
 export default function VirtualMeter() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     societyId,
     setSocietyId,
@@ -135,8 +137,8 @@ export default function VirtualMeter() {
   //   1. baseDemand    = flats × occupants × IS_LPCD
   //   2. afterUFW      = base × 1.15  [if includeLosses]
   //   3. adjustedDemand = afterUFW × 1.10 [peak-demand buffer, always applied]
-  //   4. potableDemand = 70 LPCD proportional share
-  //   5. nonPotableDemand = 65 LPCD proportional share (RWH Target)
+  //   4. potableDemand = 70 LPCD fixed end-use target
+  //   5. nonPotableDemand = 65 LPCD fixed RWH end-use target
   const {
     baseDemand,
     adjustedDemand,
@@ -203,8 +205,9 @@ export default function VirtualMeter() {
       setBillingMonths(12);
       const meteredAnnualDemand = Number(meteredConsumption || 0) * m;
       setAnnualDemand(meteredAnnualDemand);
-      setPotableDemand(Math.round(meteredAnnualDemand * (70 / 135)));
-      setNonPotableDemand(Math.round(meteredAnnualDemand * (65 / 135)));
+      // Metered total consumption does not change the explicit RWH design cap.
+      setPotableDemand(potableDemand * 365);
+      setNonPotableDemand(nonPotableDemand * 365);
     } else {
       setTotalTankerSpend(totalTankerSpend);
       setTotalMunicipal(totalMunicipal);
@@ -226,7 +229,7 @@ export default function VirtualMeter() {
   const addRow = () => {
     setBillingRows((prev) => [
       ...prev,
-      { id: ++nextId, month: 'July', year: String(currentYear), bill: '', tankers: 0, costPerTanker: '1500', tankerCapacity: 10000, municipalVolumeKl: '', borewellVolumeKl: '' },
+      { id: ++nextId, month: 'July', year: String(currentYear), bill: '', tankers: 0, costPerTanker: '1500', tankerCapacity: 10000 },
     ]);
   };
 
@@ -317,6 +320,14 @@ export default function VirtualMeter() {
 
   // ── Save/Update society data and billing rows ──
   const handleSave = async () => {
+    if (user?.isGuest) {
+      setSaveStatus({
+        type: 'error',
+        message: 'Guest mode is for exploration only. Sign in with an account to save society data.',
+      });
+      return;
+    }
+
     setIsSaving(true);
     setSaveStatus(null);
     try {
@@ -346,6 +357,7 @@ export default function VirtualMeter() {
           tankers: row.tankers === '' || row.tankers == null ? null : Number(row.tankers),
           cost_per_tanker: row.costPerTanker === '' || row.costPerTanker == null ? null : Number(row.costPerTanker),
           tanker_capacity_l: row.tankerCapacity === '' || row.tankerCapacity == null ? null : Number(row.tankerCapacity),
+          // Keep any previously saved measured volumes when editing; Phase 1 no longer collects them.
           municipal_volume_kl: row.municipalVolumeKl === '' || row.municipalVolumeKl == null ? null : Number(row.municipalVolumeKl),
           borewell_volume_kl: row.borewellVolumeKl === '' || row.borewellVolumeKl == null ? null : Number(row.borewellVolumeKl),
         };
@@ -366,7 +378,10 @@ export default function VirtualMeter() {
       }
     } catch (err) {
       console.error("Error saving society:", err);
-      setSaveStatus({ type: 'error', message: 'Failed to save data. Please try again.' });
+      const message = err.response?.status === 401
+        ? 'Your session has expired. Sign in again to save society data.'
+        : err.response?.data?.detail || 'Failed to save data. Please try again.';
+      setSaveStatus({ type: 'error', message });
     } finally {
       setIsSaving(false);
     }
@@ -640,11 +655,9 @@ export default function VirtualMeter() {
               <tr className="bg-slate-50">
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5 rounded-l-xl">Month & Year</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5">Municipal Bill (₹)</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5">Municipal Volume (kL)</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5">Tankers Bought</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5">Capacity (L)</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5">Cost / Tanker (₹)</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5">Borewell Volume (kL)</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 py-2.5">Tanker Total</th>
                 <th className="px-3 py-2.5 rounded-r-xl"></th>
               </tr>
@@ -688,19 +701,6 @@ export default function VirtualMeter() {
                       </div>
                     </td>
 
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={row.municipalVolumeKl ?? ''}
-                        onChange={(e) => updateRow(row.id, 'municipalVolumeKl', e.target.value)}
-                        aria-label={`Municipal supply volume in kL for ${row.month} ${row.year}; leave blank if unknown`}
-                        placeholder="Unknown"
-                        className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 w-24"
-                      />
-                    </td>
-
                     {/* Tankers Bought */}
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
@@ -741,19 +741,6 @@ export default function VirtualMeter() {
                           className="border border-slate-200 rounded-lg pl-6 pr-3 py-1.5 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 w-24"
                         />
                       </div>
-                    </td>
-
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={row.borewellVolumeKl ?? ''}
-                        onChange={(e) => updateRow(row.id, 'borewellVolumeKl', e.target.value)}
-                        aria-label={`Borewell supply volume in kL for ${row.month} ${row.year}; enter 0 if confirmed unused, leave blank if unknown`}
-                        placeholder="Unknown"
-                        className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 w-24"
-                      />
                     </td>
 
                     {/* Tanker Total (computed) */}
@@ -808,7 +795,7 @@ export default function VirtualMeter() {
           <div>
             <h2 id="monthly-water-audit-title" className="text-base font-semibold text-slate-900">Monthly Water Audit</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Demand and supply reconciliation is calculated by the backend from saved society records. Enter a measured zero explicitly; blank volumes remain unknown.
+              Demand and supply reconciliation is calculated by the backend. Phase 1 does not request municipal or borewell volumes; when no saved volume exists, the audit marks it unknown and withholds shortage calculations.
             </p>
           </div>
           {waterAudit?.available_years?.length > 0 && (

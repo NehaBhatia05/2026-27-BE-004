@@ -4,6 +4,7 @@ from services.roi_engine import simulate_roi
 from services.monte_carlo import run_monte_carlo
 from services.rainfall_api import fetch_daily_rainfall
 from services.tank_sizer import size_tanks
+from services.tank_sizer import simulate_tank_year
 from models.constants import ROOF_RUNOFF_COEFFICIENTS, USABILITY_FACTOR
 from models.schemas import (
     ConfigurationComparisonRequest,
@@ -18,11 +19,40 @@ router = APIRouter()
 
 
 @router.post("/simulate", response_model=ROIResponse)
-def roi_simulate(payload: ROIRequest) -> ROIResponse:
+async def roi_simulate(payload: ROIRequest) -> ROIResponse:
     """
     Run a multi-year ROI simulation for a rainwater harvesting system.
     Returns year-by-year savings, cumulative savings, and payback period.
     """
+    annual_usable_yield_litres = None
+    has_site_inputs = all(
+        value is not None
+        for value in (payload.latitude, payload.longitude, payload.gross_roof_area_sqm)
+    )
+    if has_site_inputs:
+        rainfall_by_year = await fetch_daily_rainfall(payload.latitude, payload.longitude)
+        if not rainfall_by_year:
+            raise HTTPException(
+                status_code=503,
+                detail="No complete daily rainfall years were returned; storage-constrained ROI was not fabricated.",
+            )
+        runoff_coefficient = ROOF_RUNOFF_COEFFICIENTS.get(
+            payload.roof_surface_type.lower(), ROOF_RUNOFF_COEFFICIENTS["concrete"]
+        )
+        annual_usable_yield_litres = sum(
+            simulate_tank_year(
+                rainfall_mm=rainfall,
+                tank_capacity_litres=payload.tank_capacity_litres,
+                daily_demand_litres=payload.daily_demand_lpd,
+                usable_roof_area_sqm=payload.gross_roof_area_sqm * USABILITY_FACTOR,
+                runoff_coefficient=runoff_coefficient,
+                first_flush_fraction=payload.first_flush_fraction,
+                year=year,
+                recharge_enabled=False,
+            ).useful_water_litres
+            for year, rainfall in rainfall_by_year.items()
+        ) / len(rainfall_by_year)
+
     return simulate_roi(
         daily_demand_lpd=payload.daily_demand_lpd,
         annual_yield_litres=payload.annual_yield_litres,
@@ -35,6 +65,7 @@ def roi_simulate(payload: ROIRequest) -> ROIResponse:
         annual_tanker_volume_litres=payload.annual_tanker_volume_litres,
         annual_municipal_spend=payload.annual_municipal_spend,
         annual_opex_inr=payload.annual_opex_inr,
+        annual_usable_yield_litres=annual_usable_yield_litres,
     )
 
 
@@ -61,7 +92,7 @@ async def roi_configuration_comparison(
 
 
 @router.post("/monte-carlo", response_model=MonteCarloResponse)
-def roi_monte_carlo(payload: MonteCarloRequest) -> MonteCarloResponse:
+async def roi_monte_carlo(payload: MonteCarloRequest) -> MonteCarloResponse:
     """
     Run 1,000-scenario Monte Carlo ROI simulation.
     Samples monthly rainfall from the P10–P90 historical percentile table
@@ -72,6 +103,14 @@ def roi_monte_carlo(payload: MonteCarloRequest) -> MonteCarloResponse:
     runoff_coeff = ROOF_RUNOFF_COEFFICIENTS.get(
         (payload.roof_surface_type or "concrete").lower(), 0.90
     )
+    rainfall_by_year = None
+    if payload.latitude is not None and payload.longitude is not None:
+        rainfall_by_year = await fetch_daily_rainfall(payload.latitude, payload.longitude)
+        if not rainfall_by_year:
+            raise HTTPException(
+                status_code=503,
+                detail="No complete daily rainfall years were returned; daily Monte Carlo was not fabricated.",
+            )
     result = run_monte_carlo(
         rooftop_area_m2   = payload.rooftop_area_m2,
         monthly_demand_kl = payload.monthly_demand_kl,
@@ -86,6 +125,8 @@ def roi_monte_carlo(payload: MonteCarloRequest) -> MonteCarloResponse:
         n_scenarios       = payload.n_scenarios,
         monthly_rainfall_mm = payload.monthly_rainfall_mm,
         runoff_coeff      = runoff_coeff,
+        rainfall_by_year  = rainfall_by_year,
+        first_flush_fraction = payload.first_flush_fraction,
     )
     return MonteCarloResponse(**result)
 

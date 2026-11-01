@@ -36,7 +36,7 @@
 \maketitle
 
 \begin{abstract}
-Urban housing societies in the Mumbai Metropolitan Region (MMR) face compounding water costs owing to dependence on private water tankers, yet Rainwater Harvesting (RWH) adoption remains low because existing tools rely on static annual rainfall figures that ignore inter-annual monsoon variability and site-specific hydrogeology. This paper presents \textit{WaterWallet}, a zero-hardware, physics-informed decision-support framework that integrates seasonal rainfall forecasting, hydrological yield modelling, machine learning classification, and probabilistic financial analysis in a single user workflow. The notebook evaluation uses 5,844 daily precipitation records for Thane across 2010--2025 (16 calendar years) and a chronological 48-month holdout (2022--2025). Auto-SARIMA achieves MAE 63.76~mm, RMSE 108.66~mm, and $R^2=0.823$, compared with 73.50~mm, 127.70~mm, and 0.756 for a same-month-last-year baseline. The production yield regressor is a Random Forest trained on 2010--2021 and evaluated on 2022--2024, with MAE 4.8973~KL and $R^2=0.9865$. A dual-tier classifier combines a deterministic hydrogeological safety gate with a calibrated Random Forest trained on 600 rule-labelled synthetic profiles; its held-out accuracy is 1.000, a result that reflects the synthetic label-generation process and is not evidence of field generalisation. A Monte Carlo engine samples 1,000 yield scenarios to produce a probabilistic return-on-investment profile, with a 5.22-year median break-even at the INR~175/KL reference rate. SHAP feature attributions make the classification rationale transparent to non-technical society committees. The framework offers a computationally efficient decision-support approach to sustainable urban water planning.
+Urban housing societies in the Mumbai Metropolitan Region (MMR) face compounding water costs owing to dependence on private water tankers, yet Rainwater Harvesting (RWH) adoption remains low because existing tools rely on static annual rainfall figures that ignore inter-annual monsoon variability and site-specific hydrogeology. This paper presents \textit{WaterWallet}, a zero-hardware, physics-informed decision-support framework that integrates seasonal rainfall forecasting, hydrological yield modelling, a preliminary rule-derived recommendation component, and probabilistic financial analysis in a single user workflow. The notebook evaluation uses 5,844 daily precipitation records for Thane across 2010--2025 (16 calendar years) and a chronological 48-month holdout (2022--2025). Auto-SARIMA achieves MAE 63.76~mm, RMSE 108.66~mm, and $R^2=0.823$, compared with 73.50~mm, 127.70~mm, and 0.756 for a same-month-last-year baseline. The physical yield equation and daily storage water balance are authoritative for financial outputs. The deployed Random Forest yield artifact is retained only as a prototype comparison because it is trained against formula-generated yield labels and is not validation of actual harvested-water prediction. A dual-tier classifier combines a deterministic hydrogeological safety gate with a calibrated Random Forest trained on 600 rule-labelled synthetic profiles; its held-out accuracy is 1.000, a result that reflects the synthetic label-generation process and is not evidence of field generalisation. A Monte Carlo engine bootstraps complete historical daily rainfall years through the same storage model to produce a conditional return-on-investment profile. SHAP feature attributions are prototype explanations, not validated causal evidence. The framework offers a computationally efficient decision-support approach to sustainable urban water planning.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -113,7 +113,7 @@ $\beta$                & IS~1172 contingency buffer       & 0.10           & -- 
   \label{fig:system_architecture}
 \end{figure}
 
-WaterWallet is structured as a five-layer sequential computational pipeline. Layers~1 and~2 form the deterministic physics backbone. Layers~3 and~4 introduce machine learning where it demonstrably outperforms rule-based alternatives. Layer~5 provides the financial decision artefact. The React~19 and Vite frontend communicates with the FastAPI backend via JSON over HTTP. All site and billing inputs flow forward through the pipeline; no layer makes assumptions that bypass an earlier layer's constraints.
+WaterWallet is structured as a five-layer sequential computational pipeline. Layers~1 and~2 form the deterministic physics backbone. The prototype ML components provide a preliminary recommendation interface but do not replace the safety rules or physical yield calculation. Layer~5 provides the financial decision artefact. The React~19 and Vite frontend communicates with the FastAPI backend via JSON over HTTP. All site and billing inputs flow forward through the pipeline; no layer makes assumptions that bypass an earlier layer's constraints.
 
 \textbf{Layer~1 -- Virtual Meter (Demand and Opex Aggregation):}
 Baseline daily water demand is anchored to IS~1172:1993~\cite{bis1172}, which mandates 135~LPCD for urban residences with flush toilets and baths. A 10\% peak-demand buffer $\beta$ accounts for real-world demand variability \cite{cpheeo2024}:
@@ -257,14 +257,14 @@ The 10 model inputs are rooftop area, month, monthly rainfall, calendar-year rai
 \toprule
 \textbf{Model} & \textbf{MAE (KL)} & \textbf{$R^2$} \\
 \midrule
-\textbf{Random Forest (production)} & \textbf{4.8973} & \textbf{0.9865} \\
+\textbf{Random Forest prototype (formula target)} & \textbf{4.8973} & \textbf{0.9865} \\
 \bottomrule
 \end{tabular}
 \label{tab:yield-model}
 \end{center}
 \end{table}
 
-The production artifact metrics are read from \texttt{model\_metadata.json}. The notebook's MLP is a research-only comparator and is not loaded by the API; its earlier metrics used different features and a different test window and are therefore not presented as a production-model comparison.
+The production artifact metrics are read from \texttt{model\_metadata.json}; however, its target itself is calculated with the physical yield equation. They measure interpolation of formula-generated labels, not real harvested-water prediction accuracy. The notebook's MLP is a research-only comparator and is not loaded by the API; its earlier metrics used different features and a different test window and are therefore not presented as a production-model comparison.
 
 \section{Dual-Tier RWH Configuration Classifier}
 \label{sec:classifier}
@@ -436,7 +436,7 @@ The break-even year is the first $y$ for which $\text{NetPos}_{y,s} \geq 0$. The
 \end{center}
 \end{table}
 
-At the INR~175/KL midpoint, the median break-even is 5.22~years and all scenarios break even by Year~6; at INR~150/KL, fewer than half break even by Year~6. These rate-sensitive results replace the earlier Year~2 estimate, which assumed INR~800/KL. They remain conditional on the stated roof, demand, tank, CAPEX, and annual tanker-volume assumptions, and on independently sampled monthly rainfall; this sampling does not preserve within-year autocorrelation between consecutive wet months. Bootstrap resampling of complete historical years would provide a more statistically coherent uncertainty estimate.
+Previously reported numerical break-even examples must be regenerated after the daily storage-model revision. Results remain conditional on the stated roof, demand, tank, CAPEX, annual tanker-volume assumptions, and the sampled historical rainfall years. The current implementation bootstraps complete daily rainfall sequences, preserving storm timing and within-year rainfall correlation.
 
 \begin{figure}[htbp]
 \centerline{\safeincludegraphics[width=0.48\textwidth]{monte_carlo_roi.png}}
@@ -458,7 +458,7 @@ WaterWallet addresses five structural shortcomings in conventional urban rainwat
   
   \item \textbf{Dual-Tier Hydrogeological Safety Gate:} By decoupling non-negotiable physical constraints (Tier~1 deterministic vetting) from probabilistic pattern classification (Tier~2 Random Forest), the architecture prevents catastrophic deployment errors (such as recommending injection borewells in low-permeability clay or shallow water tables), establishing an algorithmic safeguard unprecedented in municipal civic-tech calculators.
   
-  \item \textbf{Production Yield Estimation:} The deployed Random Forest regressor uses ten rainfall, rooftop, lag, and seasonal features and achieves MAE 4.8973~KL and $R^2=0.9865$ on the 2022--2024 temporal test set. The notebook's MLP remains a research-only comparator and is not used by the API.
+  \item \textbf{Prototype Yield Regressor:} The deployed Random Forest uses ten rainfall, rooftop, lag, and seasonal features, but is trained and evaluated against formula-generated yield labels. The physical yield equation remains authoritative; the regressor must not be represented as validated prediction of actual harvested water.
   
   \item \textbf{Characterization of the Demand-Gated Yield Paradox:} Dynamic mass-balance simulation demonstrated that peak monsoon precipitation (P90 wet year, 3,425~mm) yields lower usable water (515.9~KL) than a typical year (P50, 2,520~mm yielding 519.4~KL) due to early tank saturation and storage overflow. This counter-intuitive reality exposes the systemic over-sizing hazard inherent in static annual runoff calculators.
   
@@ -499,7 +499,7 @@ In adherence to rigorous academic standards, several operational and methodologi
   
   \item \textbf{Single Out-of-Sample Field Case Study:} The production model's 97.1\% confidence and agreement with the Thane site's expert label are based on one site; this cannot establish regional generalization across diverse basaltic weathering grades.
   
-  \item \textbf{Monsoon Rainfall Autocorrelation in Monte Carlo Sampling:} The current Monte~Carlo ROI engine draws monthly rainfall totals from fitted lognormal distributions independently across months. While seasonal parameterization mirrors historical variance, within-year temporal correlation (e.g., an exceptionally wet July correlating with an intense August) is partially smoothed. Future iterations will adopt block bootstrap resampling of complete historical monsoon sequences.
+  \item \textbf{Monte Carlo Scope:} The current Monte~Carlo ROI engine bootstraps complete historical daily rainfall years, preserving within-year storm timing and autocorrelation. Its uncertainty remains conditional on the finite historical record, selected perturbation range, assumed costs, and demand model; it is not a forecast probability calibrated against observed project financial outcomes.
   
   \item \textbf{Unmodeled Borewell Recharge Savings Pathway:} For Hybrid systems, financial returns are currently computed solely from direct tanker offset via tank storage. Overflow diverted into injection borewells replenishes the local aquifer but is not credited as monetary tanker replacement, rendering the reported ROI conservative.
   
@@ -511,7 +511,7 @@ In adherence to rigorous academic standards, several operational and methodologi
 
 This paper introduced \textbf{WaterWallet}, an end-to-end, zero-hardware, physics-informed decision-support framework designed to bridge the technical, geological, and financial barriers hindering residential rainwater harvesting adoption in the Mumbai Metropolitan Region. 
 
-The framework combines a notebook-benchmarked Auto-SARIMA forecaster (MAE 63.76~mm across the 2022--2025 holdout), a production Random Forest yield regressor (MAE 4.8973~KL on the 2022--2024 holdout), a dual-tier hydrogeological safety classifier, and a Monte~Carlo investment engine with Tree-SHAP explanations. In the single Thane reference case, the production classifier recommended Hybrid with 97.1\% confidence. At the INR~175/KL reference rate, the Monte~Carlo median break-even is 5.22~years; these results are conditional on the simulation assumptions and do not guarantee an individual society's payback.
+The framework combines a notebook-benchmarked Auto-SARIMA forecaster, an authoritative physical yield and daily storage model, a dual-tier hydrogeological safety classifier with a rule-derived prototype ML layer, and a Monte~Carlo investment engine. In the single Thane reference case, the prototype classifier recommended Hybrid with 97.1\% confidence; this is not a field-validated probability. Financial results are conditional on site inputs, historical rainfall, water balance, and cost assumptions and do not guarantee an individual society's payback.
 
 Future work will expand across four primary vectors:
 \begin{enumerate}

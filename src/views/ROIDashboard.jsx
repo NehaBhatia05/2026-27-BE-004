@@ -4,7 +4,7 @@ import {
   Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine, ComposedChart, BarChart, Bar, Cell
 } from 'recharts';
-import { simulateROI, runMonteCarlo, getMLRecommendation, getWaterAdvisory, saveSocietyAnalysis, sizeTank, estimateProjectCost, compareConfigurations, getSocietyWaterAudit } from '../api/waterwallet';
+import { simulateROI, runMonteCarlo, getMLRecommendation, getWaterAdvisory, saveSocietyAnalysis, sizeTank, estimateProjectCost, getSocietyWaterAudit } from '../api/waterwallet';
 import { useWaterWallet } from '../context/WaterWalletContext';
 import { ROOF_RUNOFF_COEFFICIENTS } from '../utils/waterConstants';
 import { escapeCsvCell } from '../utils/csv';
@@ -995,10 +995,13 @@ export default function ROIDashboard() {
   } = useWaterWallet();
 
   // ─── ML vs Physics yield source toggle ───────────────────────────────────
-  const [yieldSource, setYieldSource] = useState('physics'); // 'physics' | 'ml'
+  // Financial outputs always use the physical rainfall/runoff yield. The RF
+  // artifact is diagnostic only because it was trained on formula-generated
+  // targets rather than observed harvested-water measurements.
+  const yieldSource = 'physics';
   const hasMlYield = mlAnnualYield != null && mlAnnualYield > 0;
   // Active yield: use ML if toggle is set to 'ml' and ML data is available
-  const activeAnnualYield = yieldSource === 'ml' && hasMlYield ? mlAnnualYield : annualYield;
+  const activeAnnualYield = annualYield;
   const mlDeviationPct = hasMlYield && annualYield > 0
     ? (((mlAnnualYield - annualYield) / annualYield) * 100).toFixed(1)
     : null;
@@ -1033,79 +1036,9 @@ export default function ROIDashboard() {
   const [tankCostPerLitre, setTankCostPerLitre] = useState(4);
   const [annualMaintenanceRate, setAnnualMaintenanceRate] = useState(0.03);
   const [fixedAnnualOpexInr, setFixedAnnualOpexInr] = useState(0);
-  const [rechargeConnectionCost, setRechargeConnectionCost] = useState('');
-  const [configurationComparison, setConfigurationComparison] = useState(null);
-  const [comparisonLoading, setComparisonLoading] = useState(false);
-  const [comparisonError, setComparisonError] = useState(null);
-  const comparisonRequestId = useRef(0);
   const roiCapex = costEstimate?.total_capex_inr ?? adjustedCapex;
   const capex = roiCapex / 100000;
   const effectiveAnnualYield = activeAnnualYield * (1 - rainfallReductionPercent / 100);
-
-  useEffect(() => {
-    comparisonRequestId.current += 1;
-    setConfigurationComparison(null);
-    setComparisonError(null);
-    setComparisonLoading(false);
-  }, [
-    siteLatitude, siteLongitude, tracedAreaProxy, roofSurfaceType,
-    nonPotableDailyDemand, tankCapacityLitres, coastalKm, soilPerm,
-    borewell, borewellDepth, annualTankerVolumeLitres, annualTanker,
-    capexRatePerSqm, tankCostPerLitre, rechargeConnectionCost,
-    annualMaintenanceRate, fixedAnnualOpexInr,
-  ]);
-
-  const handleRunConfigurationComparison = useCallback(async () => {
-    const requestId = ++comparisonRequestId.current;
-    setComparisonLoading(true);
-    setComparisonError(null);
-    setConfigurationComparison(null);
-    const tankerDataAvailable = annualTankerVolumeLitres > 0 && annualTanker > 0;
-    try {
-      const result = await compareConfigurations({
-        latitude: Number(siteLatitude),
-        longitude: Number(siteLongitude),
-        gross_roof_area_sqm: tracedAreaProxy,
-        roof_surface_type: roofSurfaceType || 'concrete',
-        daily_non_potable_demand_litres: nonPotableDailyDemand,
-        tank_capacity_litres: tankCapacityLitres,
-        coastal_distance_km: Number(coastalKm),
-        soil_permeability_class: Number(soilPerm),
-        borewell_present: Number(borewell),
-        borewell_depth_m: Number(borewellDepth) || 0,
-        annual_tanker_volume_litres: tankerDataAvailable ? annualTankerVolumeLitres : null,
-        annual_tanker_spend_inr: tankerDataAvailable ? annualTanker * 100000 : null,
-        capex_rate_per_sqm: capexRatePerSqm,
-        tank_cost_per_litre: tankCostPerLitre,
-        recharge_connection_cost_inr: rechargeConnectionCost === ''
-          ? null
-          : Number(rechargeConnectionCost),
-        annual_maintenance_rate: annualMaintenanceRate,
-        fixed_annual_opex_inr: fixedAnnualOpexInr,
-      });
-      if (requestId === comparisonRequestId.current) {
-        setConfigurationComparison(result);
-      }
-    } catch (error) {
-      if (requestId === comparisonRequestId.current) {
-        setComparisonError(
-          error.response?.data?.detail
-          || error.message
-          || 'Configuration comparison is unavailable.'
-        );
-      }
-    } finally {
-      if (requestId === comparisonRequestId.current) {
-        setComparisonLoading(false);
-      }
-    }
-  }, [
-    siteLatitude, siteLongitude, tracedAreaProxy, roofSurfaceType,
-    nonPotableDailyDemand, tankCapacityLitres, coastalKm, soilPerm,
-    borewell, borewellDepth, annualTankerVolumeLitres, annualTanker,
-    capexRatePerSqm, tankCostPerLitre, rechargeConnectionCost,
-    annualMaintenanceRate, fixedAnnualOpexInr,
-  ]);
 
   // ─── Apply Tank Sizer recommendation to ROI slider ───────────────────────
   const handleApplyRecommendedTank = useCallback(() => {
@@ -1313,6 +1246,8 @@ export default function ROIDashboard() {
 
       const mcPromise = runMonteCarlo({
         rooftop_area_m2: rooftopSqm,
+        latitude: Number(siteLatitude),
+        longitude: Number(siteLongitude),
         monthly_demand_kl: monthlyDemandKl,
         monthly_rainfall_mm: (rainfallSource === 'phase2_historical' && monthlyRainfall?.length === 12)
           ? monthlyRainfall
@@ -1346,6 +1281,10 @@ export default function ROIDashboard() {
       const roiPromises = SCENARIOS.map((scenario) =>
         simulateROI({
           daily_demand_lpd: nonPotableDailyDemand,
+          latitude: Number(siteLatitude),
+          longitude: Number(siteLongitude),
+          gross_roof_area_sqm: rooftopSqm,
+          roof_surface_type: roofSurfaceType || 'concrete',
           annual_yield_litres: effectiveAnnualYield,
           tank_capacity_litres: tankCapacityLitres,
           water_tariff_per_kl: municipalTariffPerKl,
@@ -1673,22 +1612,6 @@ export default function ROIDashboard() {
       ['Total CAPEX', '', '', '', costEstimate?.total_capex_inr ?? 'Incomplete', costEstimate?.source || 'Unavailable'],
       ['Annual OPEX', '', '', '', costEstimate?.annual_opex_inr ?? 'Unavailable', 'Backend estimate'],
       [],
-      ['=== 3C. BACKEND CONFIGURATION COMPARISON ==='],
-      ['Configuration', 'Eligible', 'Useful Water (L/yr)', 'Recharge Overflow (L/yr)', 'CAPEX (INR)', 'Annual OPEX (INR)', 'Tanker Offset (L/yr)', 'Net Savings (INR/yr)', 'Payback (years)', 'Missing Inputs'],
-      ...(configurationComparison?.scenarios || []).map((scenario) => [
-        scenario.configuration,
-        scenario.eligible,
-        scenario.average_useful_water_litres ?? 'Unavailable',
-        scenario.average_recharge_overflow_litres ?? 'Unavailable',
-        scenario.total_capex_inr ?? 'Quotation required',
-        scenario.annual_opex_inr ?? 'Unavailable',
-        scenario.annual_tanker_offset_litres ?? 'Unavailable',
-        scenario.annual_net_savings_inr ?? 'Unavailable',
-        scenario.simple_payback_years ?? 'Unavailable',
-        scenario.missing_financial_inputs.join('; '),
-      ]),
-      ['Comparison rainfall source', configurationComparison?.rainfall_source || 'Not run'],
-      [],
       ['=== 4. MACHINE LEARNING & HYDROGEOLOGY ==='],
       ['Field', 'Value', 'Unit'],
       ['Recommended Configuration', mlRecommendResult?.recommended_config || 'Unavailable', ''],
@@ -1740,7 +1663,7 @@ export default function ROIDashboard() {
     annualMunicipal, municipalTariffPerKl, tankSizerResult, tankCapacityLitres,
     capex, annualAMC, mlRecommendResult, isSafetyFlagged, coastalKm, borewell,
     borewellDepth, yieldSource, annualYield, mlAnnualYield, yearlyData, monteCarloResult,
-    costEstimate, configurationComparison, monthlyWaterAudit, monthlyWaterAuditError,
+    costEstimate, monthlyWaterAudit, monthlyWaterAuditError,
     rainfallSource, municipalTariffIsFallback
   ]);
 
@@ -1805,11 +1728,9 @@ export default function ROIDashboard() {
           : 'Seeded rainfall normals; not site observations',
         tankerVolume: 'Delivery-count volume is modelled from saved counts and capacities and may be demo data; separately recorded monthly volumes are not independently verified.',
         costEstimateSource: costEstimate?.source || null,
-        comparisonRainfallSource: configurationComparison?.rainfall_source || null,
         monteCarloSiteSpecific: monteCarloResult?.is_site_specific ?? null,
       },
       itemizedCosts: costEstimate || null,
-      configurationComparison: configurationComparison || null,
       tankSizingAudit: tankSizerResult?.selected_candidate ? {
         selectedCapacityLitres: Number(tankSizerResult.selected_candidate.capacity_litres),
         usefulWaterLitresPerYear: Math.round(tankSizerResult.selected_candidate.useful_water_litres),
@@ -1872,7 +1793,7 @@ export default function ROIDashboard() {
     annualMunicipal, municipalTariffPerKl, tankSizerResult, tankCapacityLitres, mlRecommendResult,
     isSafetyFlagged, coastalKm, borewell, borewellDepth, capex, annualAMC, currentPayback,
     currentPaybackYears,
-    yearlyData, monteCarloResult, costEstimate, configurationComparison, rainfallSource,
+    yearlyData, monteCarloResult, costEstimate, rainfallSource,
     municipalTariffIsFallback, monthlyWaterAudit, monthlyWaterAuditError
   ]);
 
@@ -1993,18 +1914,18 @@ export default function ROIDashboard() {
       {/* Self-Sufficiency Badge */}
       <SelfSufficiencyBadge annualYield={effectiveAnnualYield} annualDemand={nonPotableDemandLitres} />
 
-      {/* ─── ML vs Physics Yield Source Toggle ─── */}
+      {/* ─── Physics yield with prototype diagnostic ─── */}
       <div className="ww-card p-5 border border-indigo-100">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Cpu size={16} className="text-indigo-600" />
-              <p className="text-sm font-bold text-slate-800">Annual Yield Source</p>
+              <p className="text-sm font-bold text-slate-800">Annual Yield Basis</p>
             </div>
             <p className="text-xs text-slate-500 max-w-md leading-relaxed">
-              Choose between the physics-based formula (area × rainfall × runoff) and the estimate
-              provided by the configured API. The API source identifies whether it is a trained
-              model or a heuristic. All financial metrics update automatically.
+              Financial charts use the physics formula (area × rainfall × runoff) and the daily
+              storage balance. The API estimate is displayed only as a prototype diagnostic; it
+              cannot replace the authoritative yield in financial calculations.
             </p>
             <div className="mt-2">
               <DataProvenanceBadge
@@ -2014,48 +1935,17 @@ export default function ROIDashboard() {
               />
             </div>
           </div>
-          {/* Segmented toggle */}
-          <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200 self-start shrink-0">
-            <button
-              type="button"
-              id="yield-source-physics"
-              onClick={() => setYieldSource('physics')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                yieldSource === 'physics'
-                  ? 'bg-white text-indigo-700 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Physics Formula
-            </button>
-            <button
-              type="button"
-              id="yield-source-ml"
-              onClick={() => hasMlYield && setYieldSource('ml')}
-              disabled={!hasMlYield}
-              title={hasMlYield ? 'Use the configured API yield estimate' : 'Trace rooftop in Map Studio to load a yield estimate'}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                yieldSource === 'ml'
-                  ? 'bg-white text-indigo-700 shadow-sm'
-                  : hasMlYield
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-slate-300 cursor-not-allowed'
-              }`}
-            >
-              API Estimate
-            </button>
-          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
           <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-3">
-            <p className="text-xs text-slate-500">Physics Yield (annual)</p>
+            <p className="text-xs text-slate-500">Physics Yield (authoritative)</p>
             <p className="font-bold text-slate-800 mt-1">
               {annualYield > 0 ? `${(annualYield / 1000).toFixed(0)} kL` : '—'}
             </p>
           </div>
           <div className={`rounded-xl border p-3 ${hasMlYield ? 'bg-violet-50 border-violet-100' : 'bg-slate-50 border-slate-100'}`}>
-            <p className="text-xs text-slate-500">API Yield Estimate (annual)</p>
+            <p className="text-xs text-slate-500">Prototype ML estimate (diagnostic)</p>
             <p className={`font-bold mt-1 ${hasMlYield ? 'text-violet-700' : 'text-slate-400'}`}>
               {hasMlYield ? `${(mlAnnualYield / 1000).toFixed(0)} kL` : 'Not loaded'}
             </p>
@@ -2076,11 +1966,10 @@ export default function ROIDashboard() {
           )}
         </div>
 
-        {yieldSource === 'ml' && hasMlYield && (
+        {hasMlYield && (
           <p className="mt-3 text-xs text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
-            <strong>API yield estimate active:</strong> All charts, payback periods, and financial totals are
-            computed using the {(mlAnnualYield / 1000).toFixed(0)} kL/yr ML estimate. Switch back to
-            Physics Formula to compare scenarios.
+            <strong>Prototype-only ML output:</strong> Its target was derived from the same physical formula,
+            so it is not validated as a predictor of actual harvested water and does not affect financial results.
           </p>
         )}
       </div>
@@ -2301,93 +2190,6 @@ export default function ROIDashboard() {
                 {costEstimate.assumptions.map((assumption) => <li key={assumption}>{assumption}</li>)}
               </ul>
             )}
-          </>
-        )}
-      </section>
-
-      <section className="ww-card p-5 sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-base font-bold text-slate-800">Backend configuration comparison</h2>
-            <p className="text-xs text-slate-500 mt-1 max-w-3xl">
-              Storage-only, recharge-only, and hybrid scenarios use the backend daily water balance
-              and Tier 1 safety gate. Recharge overflow is not usable supply and is never counted as tanker savings.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleRunConfigurationComparison}
-            disabled={comparisonLoading || !tracedAreaProxy || !nonPotableDailyDemand
-              || siteLatitude == null || siteLongitude == null
-              || !Number.isFinite(Number(siteLatitude)) || !Number.isFinite(Number(siteLongitude))}
-            className="ww-primary-button shrink-0 px-4 py-2.5 text-sm disabled:opacity-60"
-          >
-            {comparisonLoading ? 'Comparing…' : 'Compare configurations'}
-          </button>
-        </div>
-        <label className="mt-4 block max-w-sm text-xs font-medium text-slate-600">
-          Recharge connection quotation (₹; required for recharge/hybrid CAPEX)
-          <input
-            type="number"
-            min="0"
-            value={rechargeConnectionCost}
-            onChange={(event) => setRechargeConnectionCost(event.target.value)}
-            placeholder="Leave blank until quoted"
-            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
-          />
-        </label>
-        <p className="mt-2 text-xs text-slate-500">
-          Tanker volume and spend come from the saved billing aggregates; tanker volume is derived from entered counts and capacities and may be demo data, not independently verified meter records.
-          Recharge-only and hybrid payback remain unavailable until a quotation and usable billing inputs are provided.
-        </p>
-        {comparisonError && (
-          <p role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{comparisonError}</p>
-        )}
-        {configurationComparison && (
-          <>
-            <div className="mt-4 flex flex-wrap gap-2 text-xs">
-              <DataProvenanceBadge
-                label="daily historical rainfall"
-                source={configurationComparison.rainfall_source}
-                fallback={configurationComparison.fallback_used}
-              />
-              <DataProvenanceBadge
-                label="backend water-balance and cost calculations"
-                source={configurationComparison.source}
-              />
-              <span className="rounded-full bg-slate-50 text-slate-700 border border-slate-200 px-3 py-1">
-                {configurationComparison.years_used.length} complete rainfall years
-              </span>
-            </div>
-            <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
-              {configurationComparison.scenarios.map((scenario) => (
-                <article key={scenario.configuration} className="rounded-xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="font-bold capitalize text-slate-800">{scenario.configuration.replaceAll('_', ' ')}</h3>
-                    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${scenario.eligible ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
-                      {scenario.eligible ? 'Eligible' : 'Safety restricted'}
-                    </span>
-                  </div>
-                  {!scenario.eligible && scenario.safety_reason && (
-                    <p className="mt-2 text-xs text-amber-800">{scenario.safety_reason}</p>
-                  )}
-                  <dl className="mt-3 space-y-2 text-xs">
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Average useful water</dt><dd className="font-semibold text-slate-800">{scenario.average_useful_water_litres == null ? 'Unavailable' : `${Number(scenario.average_useful_water_litres).toLocaleString('en-IN')} L/yr`}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Recharge overflow (not savings)</dt><dd className="font-semibold text-slate-800">{scenario.average_recharge_overflow_litres == null ? 'Unavailable' : `${Number(scenario.average_recharge_overflow_litres).toLocaleString('en-IN')} L/yr`}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">CAPEX</dt><dd className="font-semibold text-slate-800">{scenario.total_capex_inr == null ? 'Quotation required' : `₹${Number(scenario.total_capex_inr).toLocaleString('en-IN')}`}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Annual OPEX</dt><dd className="font-semibold text-slate-800">{scenario.annual_opex_inr == null ? 'Unavailable' : `₹${Number(scenario.annual_opex_inr).toLocaleString('en-IN')}/yr`}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Direct tanker offset</dt><dd className="font-semibold text-slate-800">{scenario.annual_tanker_offset_litres == null ? 'Unavailable' : `${Number(scenario.annual_tanker_offset_litres).toLocaleString('en-IN')} L/yr`}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Net annual savings</dt><dd className="font-semibold text-slate-800">{scenario.annual_net_savings_inr == null ? 'Unavailable' : `₹${Number(scenario.annual_net_savings_inr).toLocaleString('en-IN')}/yr`}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Simple payback</dt><dd className="font-semibold text-slate-800">{scenario.simple_payback_years == null ? 'Unavailable' : `${scenario.simple_payback_years} years`}</dd></div>
-                  </dl>
-                  {scenario.missing_financial_inputs?.length > 0 && (
-                    <p className="mt-3 border-t border-slate-100 pt-2 text-xs text-amber-800">
-                      Missing: {scenario.missing_financial_inputs.join(', ')}
-                    </p>
-                  )}
-                </article>
-              ))}
-            </div>
           </>
         )}
       </section>
@@ -2722,29 +2524,29 @@ export default function ROIDashboard() {
           })}
         </div>
 
-        {/* Yield Harmonization & Model Methodology Notice */}
+        {/* Shared daily water-balance methodology notice */}
         <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50/70 p-4 text-xs text-blue-900 leading-relaxed">
           <div className="flex items-start gap-2.5">
             <HelpCircle size={18} className="text-blue-600 shrink-0 mt-0.5" />
             <div className="space-y-1.5 w-full">
               <p className="font-bold text-blue-950 text-sm">
-                Yield Harmonization: Theoretical Ceiling vs. Storage-Constrained Reality
+                Shared Water Balance: Baseline vs. Rainfall-Uncertainty Scenarios
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
                 <div className="bg-white/80 rounded-lg p-3 border border-blue-100">
                   <span className="font-bold text-blue-900 block mb-1">
-                    Deterministic Payback ({currentPayback}): Theoretical Unconstrained Ceiling
+                    Deterministic Payback ({currentPayback}): Historical Daily Baseline
                   </span>
                   <p className="text-slate-600">
-                    Assumes 100% of harvestable annual rainwater is utilized up to the eligible non-potable annual demand ({Math.round(nonPotableDemandLitres).toLocaleString()} L). It models an ideal operational state where seasonal buffers or continuous recharge prevent monsoon spillage.
+                    Uses the same daily storage, first-flush, overflow, and eligible non-potable demand balance as tank sizing. It values the average result across the fetched historical daily rainfall years.
                   </p>
                 </div>
                 <div className="bg-white/80 rounded-lg p-3 border border-blue-100">
                   <span className="font-bold text-blue-900 block mb-1">
-                    Monte Carlo Payback ({formatMonteCarloPayback(monteCarloResult?.median_breakeven_year)}): Finite Storage Reality
+                    Monte Carlo Payback ({formatMonteCarloPayback(monteCarloResult?.median_breakeven_year)}): Daily Rainfall Scenarios
                   </span>
                   <p className="text-slate-600">
-                    Enforces a physical monthly tank water balance with a {tankCapacityLitres.toLocaleString()} L tank. Because ~85% of MMR precipitation is concentrated in 4 monsoon months, tank overflows result in uncaptured water, producing a more conservative payback timeline.
+                    Bootstraps complete historical daily rainfall sequences through the same {tankCapacityLitres.toLocaleString()} L storage model. Its range comes from rainfall variability, not different storage physics.
                   </p>
                 </div>
               </div>

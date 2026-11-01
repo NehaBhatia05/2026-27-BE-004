@@ -78,7 +78,7 @@ export const fetchCatchmentData = (payload) =>
  * }>}
  */
 export const fetchRainfallForecast = (payload) =>
-  api.post("/api/catchment/forecast", payload).then((r) => r.data);
+  api.post("/api/catchment/forecast", payload, { timeout: 120_000 }).then((r) => r.data);
 
 /**
  * @param {{ rooftop_area_m2: number, monthly_rainfall_mm: Array }} payload
@@ -120,14 +120,6 @@ export const sizeTank = (payload) =>
  */
 export const estimateProjectCost = (payload) =>
   api.post("/api/roi/cost-estimate", payload).then((r) => r.data);
-
-/**
- * Runs the backend daily water balance and financial comparison for three
- * configurations. Recharge volume is not treated as tanker savings.
- * @param {object} payload
- */
-export const compareConfigurations = (payload) =>
-  api.post("/api/roi/configuration-comparison", payload).then((r) => r.data);
 
 // ---------------------------------------------------------------------------
 // ML — Dual-tier recommendation & SHAP explanations

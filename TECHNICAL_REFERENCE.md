@@ -514,9 +514,10 @@ and Monte Carlo. Monte Carlo retains the legacy CAPEX-based 3% maintenance defau
 for callers that omit `annual_opex_inr`.
 
 The authenticated `GET /api/societies/{id}/water-audit` summarizes the saved
-12-month supply records. Missing municipal or borewell volumes remain unknown;
-they are not treated as measured zeroes. The audit schema migration adds nullable
-columns so existing billing history remains intact.
+12-month supply records. Phase 1 does not request municipal or borewell volumes;
+missing values remain unknown and are not treated as measured zeroes. Existing
+saved values are retained when billing is edited. The audit schema migration adds
+nullable columns so existing billing history remains intact.
 
 ---
 

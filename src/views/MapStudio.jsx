@@ -312,26 +312,59 @@ const RainfallDemandChart = memo(function RainfallDemandChart({
   const forecastRain = forecastData?.monthly_rainfall_mm || [];
   const confInts = forecastData?.confidence_intervals || [];
 
-  const data = MONTH_LABELS.map((m, i) => {
-    const demandKl = monthlyDemand ? Math.round((monthlyDemand[i] || 0) / 1000) : 0;
-    if (isForecast) {
-      const rainVal = Math.round(forecastRain[i] || 0);
-      const lower = Math.max(0, Math.round(confInts[i]?.lower_mm || 0));
-      const upper = Math.round(confInts[i]?.upper_mm || 0);
-      return {
-        month: m,
-        rain: rainVal,
-        ciLower: lower,
-        ciUpper: upper,
-        demand: demandKl,
-      };
-    }
+  
+const data = useMemo(() => {
+  if (!isForecast) {
+    return MONTH_LABELS.map((month, i) => ({
+      month,
+      rain: Math.round(Number(monthlyMm?.[i] ?? 0)),
+      demand: Math.round(Number(monthlyDemand?.[i] ?? 0) / 1000),
+    }));
+  }
+
+  // Must be the first month being forecast, in YYYY-MM format.
+  const startMonth = forecastData?.forecast_start_month;
+
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(startMonth ?? "")) {
+    throw new Error(
+      "Missing or invalid forecast_start_month (expected YYYY-MM)."
+    );
+  }
+
+  const [year, monthNumber] = startMonth.split("-").map(Number);
+
+  return forecastRain.map((value, i) => {
+    const date = new Date(Date.UTC(year, monthNumber - 1 + i, 1));
+    const calendarMonth = date.getUTCMonth();
+
+    const rain = Math.max(0, Number(value));
+    const lower = Math.max(
+      0,
+      Number(confInts?.[i]?.lower_mm ?? 0)
+    );
+    const upper = Math.max(
+      0,
+      Number(confInts?.[i]?.upper_mm ?? 0)
+    );
+
     return {
-      month: m,
-      rain: Math.round(monthlyMm[i] || 0),
-      demand: demandKl,
+      month: `${MONTH_LABELS[calendarMonth]} ${date.getUTCFullYear()}`,
+      rain: Math.round(rain),
+      ciLower: Math.round(Math.min(lower, rain)),
+      ciUpper: Math.round(Math.max(upper, rain)),
+      demand: Math.round(
+        Number(monthlyDemand?.[calendarMonth] ?? 0) / 1000
+      ),
     };
   });
+}, [
+  isForecast,
+  forecastData?.forecast_start_month,
+  forecastRain,
+  confInts,
+  monthlyMm,
+  monthlyDemand,
+]);
 
   return (
     <div className="space-y-2">
@@ -418,15 +451,17 @@ const RainfallDemandChart = memo(function RainfallDemandChart({
           {isForecast ? (
             <>
               {/* Shaded 95% Confidence Interval band */}
+              
               <Area
                 yAxisId="rain"
                 type="monotone"
-                dataKey="ciUpper"
-                name="ciUpper"
+                dataKey="ciRange"
+                name="95% CI Band"
                 stroke="#38bdf8"
                 strokeDasharray="3 3"
-                fill="#e0f2fe"
-                fillOpacity={0.5}
+                fill="#38bdf8"
+                fillOpacity={0.18}
+                connectNulls={false}
               />
               <Line
                 yAxisId="rain"

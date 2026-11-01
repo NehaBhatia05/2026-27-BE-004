@@ -56,8 +56,11 @@ export const SEASONAL_WEIGHTS = [0.9, 0.9, 1.1, 1.2, 1.2, 0.9, 0.8, 0.8, 0.9, 1.
  *   1. base          = num_flats × occupants_per_flat × IS_LPCD
  *   2. afterUFW      = base × (1 + UFW_LOSS_FACTOR)             [if includeLosses]
  *   3. adjustedDemand = afterUFW × DEMAND_BUFFER_FACTOR         [peak-hour buffer]
- *   4. potableDemand = adjustedDemand × (POTABLE_LPCD / IS_LPCD)
- *   5. nonPotableDemand = adjustedDemand - potableDemand
+ *   4. potableDemand = occupants × POTABLE_LPCD
+ *   5. nonPotableDemand = occupants × NON_POTABLE_LPCD
+ *
+ * The two end-use targets remain unbuffered. UFW and peak headroom are
+ * system-design allowances and must not inflate the RWH-eligible 65 LPCD cap.
  *
  * This function is the canonical implementation. VirtualMeter.jsx must call
  * this and push the result into WaterWalletContext so that every downstream
@@ -82,10 +85,12 @@ export function calculateCanonicalDemand({
   const roundHalfUp = (value) => Math.floor(value + 0.5);
   const adjustedDemand = roundHalfUp(afterUFW * DEMAND_BUFFER_FACTOR);
 
-  // Potable vs Non-Potable disaggregation
+  // Fixed end-use targets; do not allocate system design allowances to RWH.
   const potableRatio = POTABLE_LPCD / IS_LPCD; // ~70/135
-  const potableDemand = roundHalfUp(adjustedDemand * potableRatio);
-  const nonPotableDemand = adjustedDemand - potableDemand;
+  const potableDemand = totalOccupants * POTABLE_LPCD;
+  const nonPotableDemand = totalOccupants * NON_POTABLE_LPCD;
+  const bufferedPotableDemand = roundHalfUp(adjustedDemand * potableRatio);
+  const bufferedNonPotableDemand = adjustedDemand - bufferedPotableDemand;
 
   const basePotable = totalOccupants * POTABLE_LPCD;
   const baseNonPotable = totalOccupants * NON_POTABLE_LPCD;
@@ -95,6 +100,8 @@ export function calculateCanonicalDemand({
     adjustedDemand,
     potableDemand,
     nonPotableDemand,
+    bufferedPotableDemand,
+    bufferedNonPotableDemand,
     basePotable: roundHalfUp(basePotable),
     baseNonPotable: roundHalfUp(baseNonPotable),
     potableLpcd: POTABLE_LPCD,

@@ -20,6 +20,8 @@ class SocietyBaselineResponse(BaseModel):
     daily_demand_with_buffer_lpd: float
     potable_demand_lpd: Optional[float] = None
     non_potable_demand_lpd: Optional[float] = None
+    buffered_potable_demand_lpd: Optional[float] = None
+    buffered_non_potable_demand_lpd: Optional[float] = None
     base_potable_demand_lpd: Optional[float] = None
     base_non_potable_demand_lpd: Optional[float] = None
     potable_lpcd: Optional[float] = 70.0
@@ -89,6 +91,15 @@ class ROIRequest(BaseModel):
         allow_inf_nan=False,
         description="Annual OPEX from the itemized cost estimate; omitted for legacy callers.",
     )
+    # When supplied together, the route derives usable yield from the shared
+    # daily water-balance engine instead of treating annual roof yield as fully
+    # usable.  Legacy callers without site data receive the documented upper
+    # bound only.
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    gross_roof_area_sqm: Optional[float] = Field(default=None, gt=0)
+    roof_surface_type: str = "concrete"
+    first_flush_fraction: float = Field(default=DEFAULT_FIRST_FLUSH_FRACTION, ge=0, lt=1)
 
     @field_validator("water_tariff_per_kl")
     @classmethod
@@ -240,6 +251,9 @@ class MonteCarloRequest(BaseModel):
         default="concrete",
         description="Type of roof surface (concrete, metal, gravel, tiles)",
     )
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    first_flush_fraction: float = Field(default=DEFAULT_FIRST_FLUSH_FRACTION, ge=0, lt=1)
 
 class MonteCarloResponse(BaseModel):
     median_breakeven_year: Optional[float]  # Full-sample P50; 11 represents >10 years

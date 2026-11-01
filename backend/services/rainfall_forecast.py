@@ -1,20 +1,53 @@
+
 """Auto-SARIMA rainfall forecasting service."""
 
 from typing import Any
 
+import numpy as np
 
-def forecast_monthly_rainfall(history: list[float], periods: int = 12) -> dict[str, Any]:
-    """
-    Forecast future monthly rainfall with seasonal Auto-SARIMA.
 
-    ``pmdarima`` is imported lazily because the rest of the backend can still
-    serve deterministic catchment calculations when the optional forecasting
-    dependency is unavailable.
+def forecast_monthly_rainfall(
+    history: list[float],
+    periods: int = 12,
+) -> dict[str, Any]:
     """
-    if len(history) < 36:
-        raise ValueError("At least 36 monthly observations are required for seasonal forecasting.")
+    Forecast future monthly rainfall using seasonal Auto-SARIMA.
+
+    `history` must contain consecutive monthly rainfall totals in
+    chronological order, from oldest to newest, measured in millimetres.
+
+    The function validates the supplied values but cannot detect missing
+    calendar months because the existing API passes rainfall values without
+    their associated dates.
+    """
+
     if periods < 1 or periods > 24:
         raise ValueError("Forecast horizon must be between 1 and 24 months.")
+
+    if len(history) < 36:
+        raise ValueError(
+            "At least 36 monthly observations are required for "
+            "seasonal forecasting."
+        )
+
+    try:
+        rainfall = np.asarray(history, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Rainfall history must contain numeric monthly values."
+        ) from exc
+
+    if rainfall.ndim != 1:
+        raise ValueError("Rainfall history must be a one-dimensional list.")
+
+    if not np.isfinite(rainfall).all():
+        raise ValueError(
+            "Rainfall history contains missing or non-finite values. "
+            "Resolve missing observations before forecasting."
+        )
+
+    if (rainfall < 0).any():
+        raise ValueError("Rainfall values cannot be negative.")
 
     try:
         from pmdarima import auto_arima
@@ -27,34 +60,86 @@ def forecast_monthly_rainfall(history: list[float], periods: int = 12) -> dict[s
     search_options = {
         "seasonal": True,
         "m": 12,
-        "stepwise": True,
-        "suppress_warnings": True,
-        "error_action": "ignore",
-        "max_p": 3,
-        "max_q": 3,
+        "start_p": 1,
+        "start_q": 1,
+        "max_p": 5,
+        "max_q": 5,
+        "start_P": 1,
+        "start_Q": 1,
         "max_P": 2,
         "max_Q": 2,
-        "max_order": 8,
+        "max_order": 5,
+        "stepwise": True,
         "information_criterion": "aic",
+        "with_intercept": "auto",
+        "maxiter": 50,
+        "suppress_warnings": True,
+        "error_action": "ignore",
     }
-    try:
-        model = auto_arima(history, **search_options)
-    except ValueError:
-        # Very regular or short histories can make the seasonal differencing
-        # test singular. Keep the seasonal search but constrain differencing.
-        model = auto_arima(history, d=0, D=0, **search_options)
-    forecast, confidence_interval = model.predict(
-        n_periods=periods,
-        return_conf_int=True,
-    )
 
-    forecast_values = [round(max(0.0, float(value)), 2) for value in forecast]
+    try:
+        model = auto_arima(rainfall, **search_options)
+    except ValueError as exc:
+        # Retry only with constrained differencing if the original search
+        # fails. Do not hide unrelated failures by returning fake values.
+        try:
+            model = auto_arima(
+                rainfall,
+                d=0,
+                D=0,
+                **search_options,
+            )
+        except Exception as retry_exc:
+            raise RuntimeError(
+                "Auto-SARIMA could not fit the rainfall history. "
+                "Check the monthly data and model dependencies."
+            ) from retry_exc
+
+    try:
+        forecast, confidence_interval = model.predict(
+            n_periods=periods,
+            return_conf_int=True,
+            alpha=0.05,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Auto-SARIMA failed while generating the rainfall forecast."
+        ) from exc
+
+    forecast = np.asarray(forecast, dtype=float)
+    confidence_interval = np.asarray(confidence_interval, dtype=float)
+
+    if forecast.shape != (periods,):
+        raise RuntimeError("Auto-SARIMA returned an unexpected forecast shape.")
+
+    if confidence_interval.shape != (periods, 2):
+        raise RuntimeError(
+            "Auto-SARIMA returned unexpected confidence interval dimensions."
+        )
+
+    if (
+        not np.isfinite(forecast).all()
+        or not np.isfinite(confidence_interval).all()
+    ):
+        raise RuntimeError("Auto-SARIMA returned non-finite forecast values.")
+
+    # Rainfall cannot be negative. Clip the point forecast and interval bounds
+    # to zero, then ensure the displayed interval contains the point forecast.
+    forecast = np.maximum(forecast, 0.0)
+    lower = np.maximum(confidence_interval[:, 0], 0.0)
+    upper = np.maximum(confidence_interval[:, 1], 0.0)
+
+    lower = np.minimum(lower, forecast)
+    upper = np.maximum(upper, forecast)
+
+    forecast_values = np.round(forecast, 2).tolist()
+
     intervals = [
         {
-            "lower_mm": round(max(0.0, float(row[0])), 2),
-            "upper_mm": round(max(0.0, float(row[1])), 2),
+            "lower_mm": round(float(low), 2),
+            "upper_mm": round(float(high), 2),
         }
-        for row in confidence_interval
+        for low, high in zip(lower, upper)
     ]
 
     return {
@@ -64,5 +149,5 @@ def forecast_monthly_rainfall(history: list[float], periods: int = 12) -> dict[s
             "order": list(model.order),
             "seasonal_order": list(model.seasonal_order),
         },
-        "training_months": len(history),
+        "training_months": len(rainfall),
     }
