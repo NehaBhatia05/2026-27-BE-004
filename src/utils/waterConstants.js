@@ -15,6 +15,9 @@ export const IS_LPCD = 135;
 export const POTABLE_LPCD = 70;
 export const NON_POTABLE_LPCD = 65;
 
+/** First-flush loss fraction used by tank sizing and ROI water balances. */
+export const DEFAULT_FIRST_FLUSH_FRACTION = 0.05;
+
 /**
  * Unaccounted-For Water (UFW) distribution loss factor.
  * Adds 15% on top of occupied demand to model pipe leakage,

@@ -703,7 +703,7 @@ The `size_tanks()` function evaluates all `CANDIDATE_CAPACITIES_L = [5000, 10000
 
 **Recharge pit model:** Default daily infiltration capacity = 10,000 L/day (1.2 m diameter × 3 m deep gravel-packed pit). Overflow above this rate is classified as `lost_overflow`.
 
-**First-flush diverter:** `first_flush_fraction = 0.05` (default) — 5% of daily inflow is discarded as first-flush contaminated runoff before entering the tank.
+**First-flush diverter:** `first_flush_fraction = 0.05` (default) — the model deducts 5% from the first wet day's inflow after a zero-rain day, and applies no further deduction on consecutive wet days. This is a daily-data approximation; actual first-flush volume depends on roof area, dry period, and diverter design.
 
 ---
 
@@ -999,7 +999,7 @@ All inspected tests are **unit/integration tests with deterministic expected out
 | Tanker inflation rate | 8% annually | Research paper default | Historical tanker prices are volatile |
 | Municipal tariff escalation | 5% annually (hardcoded) | `roi_engine.py:119` | Mumbai tariff revisions are irregular |
 | Monthly demand cap | User-specified (default 100 KL in research) | Simplification | Seasonal demand variation not modelled in deterministic engine |
-| First-flush diverter | 5% of daily inflow discarded | Default in `tank_sizer.py` | Real first-flush volume depends on roof area and dry period |
+| First-flush diverter | 5% of first wet day's inflow per modeled rain event | Default in `tank_sizer.py` | Daily event definition is approximate; real volume depends on roof area, dry period, and diverter design |
 | Default recharge pit | 10,000 L/day capacity | 1.2 m × 3 m gravel-packed pit | Actual capacity depends on soil and construction |
 
 ### 11.2 Documented Limitations

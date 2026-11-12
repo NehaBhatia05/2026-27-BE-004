@@ -1,6 +1,7 @@
 import unittest
 
 from services.roi_engine import simulate_roi
+from routers.roi import _reduce_daily_rainfall
 from models.constants import (
     USABILITY_FACTOR,
     RUNOFF_COEFFICIENT,
@@ -332,6 +333,11 @@ class ROIEngineParameterSensitivityTests(unittest.TestCase):
 
         self.assertEqual(free_install.payback_years, 0)
         self.assertIsNone(no_payback.payback_years)
+
+
+class RainfallReductionTests(unittest.TestCase):
+    def test_reduction_is_applied_uniformly_to_daily_rainfall(self):
+        self.assertEqual(_reduce_daily_rainfall([10.0, 0.0, 20.0], 30), [7.0, 0.0, 14.0])
 
 
 if __name__ == "__main__":

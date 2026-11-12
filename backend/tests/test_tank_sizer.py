@@ -24,6 +24,36 @@ class TankSizerTests(unittest.TestCase):
         self.assertEqual(result.monthly_recharge_overflow_litres[0], 0)
         self.assertEqual(len(result.monthly_ending_storage_litres), 12)
 
+    def test_month_shows_peak_storage_even_when_tank_is_empty_at_month_end(self) -> None:
+        result = simulate_tank_year(
+            rainfall_mm=[100.0] + [0.0] * 364,
+            tank_capacity_litres=2000,
+            daily_demand_litres=100,
+            usable_roof_area_sqm=10,
+            runoff_coefficient=1,
+            first_flush_fraction=0,
+            year=2021,
+            recharge_enabled=False,
+        )
+
+        self.assertEqual(result.monthly_peak_storage_litres[0], 900)
+        self.assertEqual(result.monthly_ending_storage_litres[0], 0)
+
+    def test_first_flush_is_deducted_once_per_rain_event(self) -> None:
+        result = simulate_tank_year(
+            rainfall_mm=[10.0, 10.0, 0.0, 10.0] + [0.0] * 361,
+            tank_capacity_litres=10000,
+            daily_demand_litres=0,
+            usable_roof_area_sqm=10,
+            runoff_coefficient=1,
+            first_flush_fraction=0.05,
+            year=2021,
+            recharge_enabled=False,
+        )
+
+        # Three wet days across two events: 95 L + 100 L + 95 L.
+        self.assertEqual(result.monthly_inflow_litres[0], 290)
+
     def test_simulator_uses_actual_year_length(self) -> None:
         for year, days in [(2012, 366), (2016, 366), (2020, 366), (2024, 366), (2021, 365)]:
             with self.subTest(year=year):

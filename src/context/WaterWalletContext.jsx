@@ -75,7 +75,7 @@ export function WaterWalletProvider({ children }) {
   const [mlAnnualYield, setMlAnnualYield] = useState(null);
   const [mlMonthlyYield, setMlMonthlyYield] = useState(null);
 
-  const defaultRainfallNormals = [1, 1, 2, 18, 110, 510, 710, 580, 300, 95, 18, 2];
+  const defaultRainfallNormals = [1.2, 1.5, 2.8, 1.8, 35.4, 465.2, 820.5, 560.8, 385.6, 92.4, 9.8, 2.6];
   const [monthlyRainfall, setMonthlyRainfall] = useState(defaultRainfallNormals);
   const [grossRoofArea, setGrossRoofArea] = useState(1200);
   const [capexRatePerSqm, setCapexRatePerSqm] = useState(600);

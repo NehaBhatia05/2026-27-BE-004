@@ -9,55 +9,76 @@ def estimate_project_cost(payload: CostEstimateRequest) -> CostEstimateResponse:
         "Maintenance rate is the existing ROI planning assumption (3% of CAPEX per year), not a vendor-validated operating budget.",
         "The catchment/installation and tank estimates are additive in this model; confirm their scopes do not overlap before using a contractor budget.",
     ]
-    usable_area = payload.gross_roof_area_sqm * USABILITY_FACTOR
-    breakdown = [
-        CostLineItem(
-            component="catchment_and_installation",
-            amount_inr=round(usable_area * payload.capex_rate_per_sqm, 2),
-            quantity=round(usable_area, 2),
-            unit="usable m²",
-            unit_cost_inr=payload.capex_rate_per_sqm,
-            assumption_source="Existing Map Studio planning rate; editable; no verified date or geographic basis",
-        )
-    ]
-
-    if payload.configuration in ("storage_only", "hybrid"):
-        breakdown.append(
-            CostLineItem(
-                component="storage_tank",
-                amount_inr=round(payload.tank_capacity_litres * payload.tank_cost_per_litre, 2),
-                quantity=payload.tank_capacity_litres,
-                unit="litre",
-                unit_cost_inr=payload.tank_cost_per_litre,
-                assumption_source="Existing tank-sizer planning rate; editable; no verified date or geographic basis",
-            )
-        )
-
     missing_costs = []
-    if payload.configuration in ("recharge_only", "hybrid"):
-        if payload.recharge_connection_cost_inr is None:
+    if payload.costing_method == "itemized_quote":
+        breakdown = [
+            CostLineItem(
+                component=line.component,
+                amount_inr=round(line.quantity * line.unit_cost_inr, 2),
+                quantity=line.quantity,
+                unit=line.unit,
+                unit_cost_inr=line.unit_cost_inr,
+                assumption_source=line.price_source,
+            )
+            for line in payload.itemized_capex
+        ]
+        if not payload.itemized_capex:
+            missing_costs.append("itemized installation quote")
+        if not payload.itemized_quote_complete:
+            missing_costs.append("confirmation that all applicable CAPEX items are included")
+        assumptions = [
+            "Line-item amounts use user-entered quantities and quoted unit rates; verify quote date, location, taxes, and scope.",
+            "The itemized quote replaces the planning-rate estimate. Do not omit applicable items such as collection piping, filter/first-flush, tank/base, labour, or commissioning.",
+        ]
+    else:
+        usable_area = payload.gross_roof_area_sqm * USABILITY_FACTOR
+        breakdown = [
+            CostLineItem(
+                component="catchment_and_installation",
+                amount_inr=round(usable_area * payload.capex_rate_per_sqm, 2),
+                quantity=round(usable_area, 2),
+                unit="usable m²",
+                unit_cost_inr=payload.capex_rate_per_sqm,
+                assumption_source="Existing Map Studio planning rate; editable; no verified date or geographic basis",
+            )
+        ]
+
+        if payload.configuration in ("storage_only", "hybrid"):
             breakdown.append(
                 CostLineItem(
-                    component="recharge_connection",
-                    amount_inr=None,
-                    quantity=1,
-                    unit="system",
-                    unit_cost_inr=None,
-                    assumption_source="Missing; provide a site-specific quotation",
+                    component="storage_tank",
+                    amount_inr=round(payload.tank_capacity_litres * payload.tank_cost_per_litre, 2),
+                    quantity=payload.tank_capacity_litres,
+                    unit="litre",
+                    unit_cost_inr=payload.tank_cost_per_litre,
+                    assumption_source="Existing tank-sizer planning rate; editable; no verified date or geographic basis",
                 )
             )
-            missing_costs.append("recharge connection quotation")
-        else:
-            breakdown.append(
-                CostLineItem(
-                    component="recharge_connection",
-                    amount_inr=payload.recharge_connection_cost_inr,
-                    quantity=1,
-                    unit="system",
-                    unit_cost_inr=payload.recharge_connection_cost_inr,
-                    assumption_source="User-provided quotation",
+
+        if payload.configuration in ("recharge_only", "hybrid"):
+            if payload.recharge_connection_cost_inr is None:
+                breakdown.append(
+                    CostLineItem(
+                        component="recharge_connection",
+                        amount_inr=None,
+                        quantity=1,
+                        unit="system",
+                        unit_cost_inr=None,
+                        assumption_source="Missing; provide a site-specific quotation",
+                    )
                 )
-            )
+                missing_costs.append("recharge connection quotation")
+            else:
+                breakdown.append(
+                    CostLineItem(
+                        component="recharge_connection",
+                        amount_inr=payload.recharge_connection_cost_inr,
+                        quantity=1,
+                        unit="system",
+                        unit_cost_inr=payload.recharge_connection_cost_inr,
+                        assumption_source="User-provided quotation",
+                    )
+                )
 
     subtotal = round(sum(item.amount_inr or 0 for item in breakdown), 2)
     capex_complete = not missing_costs
@@ -89,6 +110,7 @@ def estimate_project_cost(payload: CostEstimateRequest) -> CostEstimateResponse:
         assumptions.append("Annual OPEX and payback are withheld until all required CAPEX quotations are supplied.")
 
     return CostEstimateResponse(
+        costing_method=payload.costing_method,
         configuration=payload.configuration,
         capex_breakdown=breakdown,
         capex_subtotal_inr=subtotal,

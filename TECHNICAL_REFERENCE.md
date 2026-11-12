@@ -277,7 +277,7 @@ function runScenario({ annualTanker, annualMunicipal, capex, gamma }) {
 
     The dashboard's planning default uses **65 litres per person per day (LPCD)**
     for non-potable demand, the midpoint of the 60–70 LPCD source range. It displays
-    the resulting daily demand beside reliability so the denominator is auditable;
+    the resulting daily demand beside eligible-demand coverage so the denominator is auditable;
     this remains a planning assumption until society-specific flushing and gardening
     measurements are entered.
 
@@ -295,9 +295,9 @@ function runScenario({ annualTanker, annualMunicipal, capex, gamma }) {
     falls back to monthly averages.
 
     The candidate list includes a zero-litre "do nothing" baseline. A zero-capacity
-    candidate cannot serve demand, so it receives zero useful water, zero reliability,
+    candidate cannot serve demand, so it receives zero useful water and zero demand coverage,
     zero financial savings, and no payback. Leap years (2012, 2016, 2020, and 2024)
-    are simulated over 366 daily records; reliability uses the actual record length.
+    are simulated over 366 daily records; demand coverage uses the actual record length.
     cumulativeRWH       += (thisYearMunicipal + thisYearRwhMaint)
     // Note: RWH path still pays municipal bills (partial supply supplement)
     // capex is baked into cumulativeRWH at year 0 as starting value

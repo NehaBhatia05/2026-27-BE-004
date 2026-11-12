@@ -14,9 +14,8 @@ import {
 } from 'recharts';
 import { useWaterWallet } from '../context/WaterWalletContext';
 import { fetchCatchmentData, fetchRainfallForecast, getMLYield } from '../api/waterwallet';
-import { ROOF_RUNOFF_COEFFICIENTS, SEASONAL_WEIGHTS } from '../utils/waterConstants';
+import { ROOF_RUNOFF_COEFFICIENTS } from '../utils/waterConstants';
 import { formatLitres, formatRupees, formatRainfall, formatArea } from '../utils/formatters';
-import { calculateForecastOutlook } from '../utils/forecastOutlook';
 import { lookupMMRPincode } from '../utils/mmrPincodes';
 
 
@@ -32,8 +31,9 @@ L.Icon.Default.mergeOptions({
 const THANE_CENTER = [19.2183, 72.9781];
 const CAPEX_RATE_PER_SQM = 600;  // ₹ per m² (MMR parametric DSR rate)
 const OBSTACLE_FACTOR = 0.80; // 20% deduction for roof obstacles
-const MMR_DEFAULT_MONTHLY_RAINFALL = [1, 1, 2, 18, 110, 510, 710, 580, 300, 95, 18, 2];
-const MMR_DEFAULT_ANNUAL_RAINFALL = 2447;
+// Keep this fallback aligned with backend/services/rainfall_api.py.
+const MMR_DEFAULT_MONTHLY_RAINFALL = [1.2, 1.5, 2.8, 1.8, 35.4, 465.2, 820.5, 560.8, 385.6, 92.4, 9.8, 2.6];
+const MMR_DEFAULT_ANNUAL_RAINFALL = MMR_DEFAULT_MONTHLY_RAINFALL.reduce((sum, value) => sum + value, 0);
 
 // Open-Meteo direct fetch removed, logic moved to backend
 
@@ -46,222 +46,57 @@ const ESRI_ATTRIBUTION =
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 // Monsoon months: June(5), July(6), August(7), September(8) — 0-indexed
 const MONSOON_IDX = [5, 6, 7, 8];
-const DEFAULT_OUTLOOK_TANK_CAPACITY_LITRES = 10_000;
-
 function ForecastWaterOutlook({
   forecastData,
   forecastLoading,
   forecastError,
-  grossRoofAreaSqm,
-  roofSurfaceType,
-  annualNonPotableDemandLitres,
 }) {
-  const [tankCapacityLitres, setTankCapacityLitres] = useState(DEFAULT_OUTLOOK_TANK_CAPACITY_LITRES);
-  const [startingStorageLitres, setStartingStorageLitres] = useState(0);
-  const monthlyDemandLitres = useMemo(() => {
-    const weightTotal = SEASONAL_WEIGHTS.reduce((sum, weight) => sum + weight, 0);
-    return SEASONAL_WEIGHTS.map((weight) => (
-      annualNonPotableDemandLitres * weight / weightTotal
-    ));
-  }, [annualNonPotableDemandLitres]);
-  const outlook = useMemo(() => {
-    if (!forecastData) return null;
-    return calculateForecastOutlook({
-      forecastData,
-      monthlyDemandLitres,
-      grossRoofAreaSqm,
-      runoffCoefficient: ROOF_RUNOFF_COEFFICIENTS[roofSurfaceType] || 0.90,
-      tankCapacityLitres,
-      startingStorageLitres,
-    });
-  }, [
-    forecastData,
-    grossRoofAreaSqm,
-    monthlyDemandLitres,
-    roofSurfaceType,
-    startingStorageLitres,
-    tankCapacityLitres,
-  ]);
-
   if (!forecastData && !forecastLoading && !forecastError) return null;
-
-  const formatRange = (low, expected, high) => (
-    <span title={`Low ${formatLitres(low)} · Expected ${formatLitres(expected)} · High ${formatLitres(high)}`}>
-      {formatLitres(low)} / {formatLitres(expected)} / {formatLitres(high)}
-    </span>
-  );
-  const statusStyles = {
-    surplus: 'bg-emerald-50 text-emerald-800',
-    balanced: 'bg-slate-100 text-slate-700',
-    shortfall: 'bg-amber-50 text-amber-800',
-    dry: 'bg-red-50 text-red-800',
-  };
-  const shortfallRange = outlook
-    ? {
-        low: Math.min(
-          outlook.summary.total_shortfall_litres.low,
-          outlook.summary.total_shortfall_litres.high,
-        ),
-        high: Math.max(
-          outlook.summary.total_shortfall_litres.low,
-          outlook.summary.total_shortfall_litres.high,
-        ),
-      }
-    : null;
+  const forecastValues = (forecastData?.monthly_rainfall_mm || [])
+    .map(Number)
+    .filter(Number.isFinite);
+  const forecastTotal = forecastValues.reduce((sum, value) => sum + Math.max(0, value), 0);
+  const forecastAverage = forecastValues.length ? forecastTotal / forecastValues.length : 0;
 
   return (
-    <section className="ww-card p-4 space-y-4" aria-labelledby="forecast-outlook-heading">
-      <div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
+    <section className="ww-card p-4" aria-labelledby="forecast-outlook-heading">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
           <h3 id="forecast-outlook-heading" className="text-sm font-semibold text-slate-800">
             Next 12-Month Water Outlook
           </h3>
-          {outlook && (
-            <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-              outlook.fallback_used
-                ? 'bg-amber-100 text-amber-900'
-                : 'bg-emerald-100 text-emerald-800'
-            }`}>
-              {outlook.fallback_used
-                ? 'Synthetic regional history — illustrative only'
-                : 'Open-Meteo historical'}
-            </span>
-          )}
+          <p className="mt-1 text-xs text-slate-500">Auto-SARIMA rainfall forecast · monthly estimates with 95% confidence intervals.</p>
         </div>
-        <p className="mt-1 text-xs text-slate-500">
-          Forecast-based estimate. Historical rainfall remains the basis for baseline yield, ROI, and tank sizing.
-        </p>
+        {forecastData?.model_order && (
+          <span className="rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-mono text-sky-800">
+            SARIMA({forecastData.model_order.order?.join(',')})({forecastData.model_order.seasonal_order?.slice(0, 3)?.join(',')})₁₂
+          </span>
+        )}
       </div>
 
-      {outlook?.fallback_used === true && (
-        <div
-          role="status"
-          className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900"
-        >
-          Illustrative — based on synthetic regional history, not a site-specific forecast.
-          Operational guidance is suppressed; the monthly scenarios are shown for context only.
-        </div>
-      )}
-
       {forecastLoading && !forecastData && (
-        <p role="status" className="text-sm text-slate-600">Loading the rainfall forecast and outlook…</p>
+        <p role="status" className="mt-3 text-sm text-slate-600">Loading Auto-SARIMA forecast…</p>
       )}
       {forecastError && !forecastData && (
-        <p role="status" className="text-sm text-amber-800">
-          The rainfall forecast is unavailable. The historical yield estimate is unchanged.
-        </p>
+        <p role="status" className="mt-3 text-sm text-amber-800">The Auto-SARIMA forecast is unavailable.</p>
       )}
-
       {forecastData && (
         <>
-          <p className="text-[11px] text-slate-500">
-            Monthly low / expected / high scenarios propagate the rainfall confidence bounds through harvested yield
-            and the tank balance. These monthly bounds are not a joint annual probability interval. Yield applies
-            80% usable roof area, the selected runoff coefficient, and 5% first-flush loss.
-            Low / expected / high always refers to the rainfall scenario, so lower rainfall can mean a higher shortfall.
+          <p className={`mt-3 rounded-lg border px-3 py-2 text-xs ${forecastData.fallback_used ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-sky-100 bg-sky-50 text-sky-800'}`}>
+            {forecastData.fallback_used
+              ? 'Regional synthetic rainfall history was used; treat this forecast as illustrative.'
+              : 'Forecast fitted to historical Open-Meteo rainfall.'}
           </p>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="space-y-1 text-xs font-medium text-slate-700">
-              Outlook tank capacity (L)
-              <input
-                type="number"
-                min="1000"
-                max="500000"
-                step="1000"
-                value={tankCapacityLitres}
-                onChange={(event) => {
-                  const capacity = Math.min(500000, Math.max(1000, Number(event.target.value) || 1000));
-                  setTankCapacityLitres(capacity);
-                  setStartingStorageLitres((current) => Math.min(current, capacity));
-                }}
-                className="block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="space-y-1 text-xs font-medium text-slate-700">
-              Starting tank level (L)
-              <input
-                type="number"
-                min="0"
-                max={tankCapacityLitres}
-                step="500"
-                value={startingStorageLitres}
-                onChange={(event) => {
-                  setStartingStorageLitres(Math.min(
-                    tankCapacityLitres,
-                    Math.max(0, Number(event.target.value) || 0),
-                  ));
-                }}
-                className="block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              />
-              <span className="block font-normal text-slate-500">Defaults to empty; limited to the selected tank capacity.</span>
-            </label>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:max-w-md">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] text-slate-500">Forecast rainfall · next 12 months</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">{formatRainfall(forecastTotal)}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] text-slate-500">Monthly average</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">{formatRainfall(forecastAverage)}</p>
+            </div>
           </div>
-
-          {outlook && (
-            <>
-              <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
-                <span>Starting storage: {formatLitres(outlook.starting_storage_litres)}</span>
-                <span>Tank capacity: {formatLitres(outlook.tank_capacity_litres)}</span>
-                <span>Usable roof: {formatArea(outlook.usable_roof_area_sqm)}</span>
-              </div>
-
-              {outlook.fallback_used ? (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  Illustrative regional pattern only. Site-specific operational planning requires a valid forecast.
-                </p>
-              ) : (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  Expected non-potable shortfall across the next 12 months:{' '}
-                  <strong>{formatLitres(outlook.summary.total_shortfall_litres.expected)}</strong>
-                  {' '}(scenario range {formatLitres(shortfallRange.low)}–{formatLitres(shortfallRange.high)}).
-                  This is a planning estimate, not a tanker purchase instruction.
-                </p>
-              )}
-
-              <div className="overflow-x-auto">
-                <table className="min-w-[1050px] w-full border-collapse text-left text-xs">
-                  <caption className="sr-only">Monthly rainfall outlook and low, expected, and high water-balance scenarios</caption>
-                  <thead>
-                    <tr className="border-b border-slate-200 text-[10px] uppercase tracking-wide text-slate-500">
-                      <th className="p-2">Month</th>
-                      <th className="p-2">Rainfall mm<br />L / E / H</th>
-                      <th className="p-2">Yield L<br />L / E / H</th>
-                      <th className="p-2">Demand</th>
-                      <th className="p-2">Served L<br />L / E / H</th>
-                      <th className="p-2">Unmet L<br />L / E / H</th>
-                      <th className="p-2">Storage L<br />L / E / H</th>
-                      <th className="p-2">Overflow L<br />L / E / H</th>
-                      <th className="p-2">Expected status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {outlook.monthly.map((month) => {
-                      const monthLabel = new Date(`${month.month}-01T00:00:00Z`)
-                        .toLocaleDateString('en', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-                      return (
-                        <tr key={month.month} className="border-b border-slate-100 text-slate-700">
-                          <th scope="row" className="p-2 font-medium">{monthLabel}</th>
-                          <td className="p-2">{formatRange(month.rainfall_mm.low, month.rainfall_mm.expected, month.rainfall_mm.high)}</td>
-                          <td className="p-2">{formatRange(month.yield_litres.low, month.yield_litres.expected, month.yield_litres.high)}</td>
-                          <td className="p-2">{formatLitres(month.demand_litres)}</td>
-                          <td className="p-2">{formatRange(month.served_litres.low, month.served_litres.expected, month.served_litres.high)}</td>
-                          <td className="p-2">{formatRange(month.shortfall_litres.low, month.shortfall_litres.expected, month.shortfall_litres.high)}</td>
-                          <td className="p-2">{formatRange(month.storage_litres.low, month.storage_litres.expected, month.storage_litres.high)}</td>
-                          <td className="p-2">{formatRange(month.overflow_litres.low, month.overflow_litres.expected, month.overflow_litres.high)}</td>
-                          <td className="p-2">
-                            <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${statusStyles[month.status]}`}>
-                              {month.status}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
         </>
       )}
     </section>
@@ -309,10 +144,6 @@ const RainfallDemandChart = memo(function RainfallDemandChart({
   onToggleMode,
 }) {
   const isForecast = chartMode === 'forecast' && forecastData;
-  const forecastRain = forecastData?.monthly_rainfall_mm || [];
-  const confInts = forecastData?.confidence_intervals || [];
-
-  
 const data = useMemo(() => {
   if (!isForecast) {
     return MONTH_LABELS.map((month, i) => ({
@@ -333,18 +164,18 @@ const data = useMemo(() => {
 
   const [year, monthNumber] = startMonth.split("-").map(Number);
 
-  return forecastRain.map((value, i) => {
+  return (forecastData?.monthly_rainfall_mm || []).map((value, i) => {
     const date = new Date(Date.UTC(year, monthNumber - 1 + i, 1));
     const calendarMonth = date.getUTCMonth();
 
     const rain = Math.max(0, Number(value));
     const lower = Math.max(
       0,
-      Number(confInts?.[i]?.lower_mm ?? 0)
+      Number(forecastData?.confidence_intervals?.[i]?.lower_mm ?? 0)
     );
     const upper = Math.max(
       0,
-      Number(confInts?.[i]?.upper_mm ?? 0)
+      Number(forecastData?.confidence_intervals?.[i]?.upper_mm ?? 0)
     );
 
     return {
@@ -352,6 +183,10 @@ const data = useMemo(() => {
       rain: Math.round(rain),
       ciLower: Math.round(Math.min(lower, rain)),
       ciUpper: Math.round(Math.max(upper, rain)),
+      ciRange: [
+        Math.round(Math.min(lower, rain)),
+        Math.round(Math.max(upper, rain)),
+      ],
       demand: Math.round(
         Number(monthlyDemand?.[calendarMonth] ?? 0) / 1000
       ),
@@ -360,8 +195,8 @@ const data = useMemo(() => {
 }, [
   isForecast,
   forecastData?.forecast_start_month,
-  forecastRain,
-  confInts,
+  forecastData?.monthly_rainfall_mm,
+  forecastData?.confidence_intervals,
   monthlyMm,
   monthlyDemand,
 ]);
@@ -452,7 +287,7 @@ const data = useMemo(() => {
             <>
               {/* Shaded 95% Confidence Interval band */}
               
-              <Area
+      <Area
                 yAxisId="rain"
                 type="monotone"
                 dataKey="ciRange"
@@ -462,11 +297,21 @@ const data = useMemo(() => {
                 fill="#38bdf8"
                 fillOpacity={0.18}
                 connectNulls={false}
+                legendType="none"
               />
               <Line
                 yAxisId="rain"
                 type="monotone"
                 dataKey="ciLower"
+                stroke="#38bdf8"
+                strokeDasharray="3 3"
+                dot={false}
+                legendType="none"
+              />
+              <Line
+                yAxisId="rain"
+                type="monotone"
+                dataKey="ciUpper"
                 stroke="#38bdf8"
                 strokeDasharray="3 3"
                 dot={false}
@@ -525,7 +370,6 @@ export default function MapStudio() {
     setRainfallSource,
     monthlyDemand,
     roofSurfaceType,
-    nonPotableDemand,
     borewell, setBorewell,
     borewellDepth, setBorewellDepth,
     soilPerm, setSoilPerm,
@@ -570,7 +414,7 @@ export default function MapStudio() {
   const [historicalPeriod, setHistoricalPeriod] = useState(null);
   const rainfallRequestId = useRef(0);
 
-  const effectiveRainfall = annualRainfall || MMR_DEFAULT_ANNUAL_RAINFALL;
+  const effectiveRainfall = annualRainfall ?? MMR_DEFAULT_ANNUAL_RAINFALL;
 
   // ─── Polygon state & Restoration ──────────────────────────────────────────
   const [points, setPoints] = useState(() => (
@@ -718,6 +562,13 @@ export default function MapStudio() {
       roof_surface_type: roofSurfaceType,
     };
 
+    // Start the forecast request alongside the climatology request. Both need
+    // the same location, and waiting for one before starting the other made
+    // the optional model noticeably extend the Phase 2 loading time.
+    const forecastPromise = fetchRainfallForecast(catchmentPayload).then(
+      (data) => ({ data }),
+      (error) => ({ error }),
+    );
     fetchCatchmentData(catchmentPayload)
       .then((historicalData) => {
         if (requestId !== rainfallRequestId.current) return null;
@@ -745,25 +596,29 @@ export default function MapStudio() {
             rooftop_area_m2: tracedArea,
             monthly_rainfall_mm: historicalData.monthly_rainfall_mm,
           }),
-          fetchRainfallForecast(catchmentPayload),
+          forecastPromise,
         ]);
       })
       .then((results) => {
         if (!results || requestId !== rainfallRequestId.current) return null;
-        const [mlResult, forecastResult] = results;
+        const [mlResult, forecastOutcome] = results;
+        const forecastData = forecastOutcome.status === 'fulfilled'
+          ? forecastOutcome.value.data
+          : null;
+        const forecastError = !forecastData;
 
         if (mlResult.status === 'fulfilled') {
           return {
             mlData: mlResult.value,
-            forecastData: forecastResult.status === 'fulfilled' ? forecastResult.value : null,
-            forecastError: forecastResult.status === 'rejected',
+            forecastData,
+            forecastError,
           };
         }
         console.warn('ML yield unavailable; retaining physics-based rainfall yield.', mlResult.reason);
         return {
           mlData: null,
-          forecastData: forecastResult.status === 'fulfilled' ? forecastResult.value : null,
-          forecastError: forecastResult.status === 'rejected',
+          forecastData,
+          forecastError,
         };
       })
       .then((result) => {
@@ -839,7 +694,7 @@ export default function MapStudio() {
       label: 'Rainfall Planning Baseline',
       value: weatherLoading ? 'Fetching…' : formatRainfall(effectiveRainfall),
       unit: weatherError
-        ? 'Regional fallback applied · not site-specific'
+        ? 'Site-specific rainfall unavailable · regional estimate shown'
         : annualRainfall == null
         ? 'Regional IMD Normal · Trace roof to calculate site yield'
         : `${historicalPeriod || '15-year historical normal'} · Open-Meteo`,
@@ -1066,9 +921,6 @@ export default function MapStudio() {
             forecastData={forecastData}
             forecastLoading={forecastLoading}
             forecastError={forecastError}
-            grossRoofAreaSqm={tracedArea}
-            roofSurfaceType={roofSurfaceType}
-            annualNonPotableDemandLitres={Number(nonPotableDemand) || 0}
           />
 
           {/* ── Feature 5: Monsoon Dependency Score ── */}

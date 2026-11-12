@@ -1,14 +1,14 @@
 """
 Monte Carlo ROI Simulation — WaterWallet
 ==========================================
-Samples 1,000 possible annual yield scenarios from the historical
-P10–P90 monthly rainfall distribution and computes the break-even
-year for each, producing a probability distribution.
+Samples rainfall scenarios and runs each through the shared daily water
+balance before calculating break-even, producing a probability distribution.
 
 The output answers: "What is the probability of break-even by Year N?"
 which is far more informative than a single deterministic break-even.
 
-Method mirrors the Colab notebook (Cell 10).
+Complete historical daily years are preferred when site rainfall is available;
+monthly and percentile sources remain compatibility fallbacks.
 """
 
 import numpy as np

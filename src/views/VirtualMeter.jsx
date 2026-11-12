@@ -332,6 +332,7 @@ export default function VirtualMeter() {
     setSaveStatus(null);
     try {
       let savedSociety;
+      let recreatedMissingSociety = false;
       const societyPayload = {
         name: societyName,
         pincode: pincode,
@@ -341,7 +342,17 @@ export default function VirtualMeter() {
       };
 
       if (societyId) {
-        savedSociety = await updateSociety(societyId, societyPayload);
+        try {
+          savedSociety = await updateSociety(societyId, societyPayload);
+        } catch (error) {
+          // The browser can retain a society ID after logout, account switching,
+          // or deletion. The backend correctly hides societies owned by another
+          // account with a 404, so save the current form as a new owned record.
+          if (error.response?.status !== 404) throw error;
+          savedSociety = await createSociety(societyPayload);
+          setSocietyId(savedSociety.id);
+          recreatedMissingSociety = true;
+        }
       } else {
         savedSociety = await createSociety(societyPayload);
         setSocietyId(savedSociety.id);
@@ -364,7 +375,12 @@ export default function VirtualMeter() {
       });
 
       await saveBillingEntries(savedSociety.id, billingPayload);
-      setSaveStatus({ type: 'success', message: 'Society data saved successfully!' });
+      setSaveStatus({
+        type: 'success',
+        message: recreatedMissingSociety
+          ? 'The previous saved society was unavailable for this account. Your data has been saved as a new society.'
+          : 'Society data saved successfully!',
+      });
       setTimeout(() => setSaveStatus(null), 3000);
       setWaterAuditLoading(true);
       setWaterAuditError(null);
@@ -587,7 +603,7 @@ export default function VirtualMeter() {
                   <Zap size={16} className="text-slate-400" />
                   <div>
                     <p className="text-sm font-medium text-slate-700">Use Actual Metered Data?</p>
-                    <p className="text-xs text-slate-400">Override theoretical math with your actual metered bills</p>
+                    <p className="text-xs text-slate-400">Use recorded consumption and bills for demand context; RWH sizing keeps the 65 LPCD non-potable target.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -610,7 +626,7 @@ export default function VirtualMeter() {
                     </select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Consumption (L / {meteredFrequency.split('-')[0]})</label>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">Consumption (L / {meteredFrequency})</label>
                     <input type="number" min="0" value={meteredConsumption} onChange={(e) => setMeteredConsumption(e.target.value)} className="w-full border border-blue-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-blue-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. 450000" />
                   </div>
                   <div className="space-y-1.5">

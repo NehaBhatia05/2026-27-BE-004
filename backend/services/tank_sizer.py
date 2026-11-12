@@ -39,6 +39,7 @@ class TankYearResult:
     recharge_overflow_litres: float
     lost_overflow_litres: float
     unmet_demand_litres: float
+    # Volumetric share of modeled eligible demand served (API field retained).
     reliability_percent: float
     ending_storage_litres: float
     total_inflow_litres: float
@@ -48,6 +49,7 @@ class TankYearResult:
     monthly_recharge_overflow_litres: list[float]
     monthly_lost_overflow_litres: list[float]
     monthly_ending_storage_litres: list[float]
+    monthly_peak_storage_litres: list[float]
 
 
 def simulate_tank_year(
@@ -72,16 +74,23 @@ def simulate_tank_year(
     monthly_recharge_overflow = [0.0] * 12
     monthly_lost_overflow = [0.0] * 12
     monthly_ending_storage = [0.0] * 12
+    monthly_peak_storage = [0.0] * 12
     month_index = 0
     day_in_month = 0
+    previous_day_wet = False
 
     for rain_mm in rainfall_mm:
         while month_index < 11 and day_in_month >= monthrange(year, month_index + 1)[1]:
             month_index += 1
             day_in_month = 0
 
-        inflow = max(0.0, rain_mm) * usable_roof_area_sqm * runoff_coefficient
-        inflow *= 1.0 - first_flush_fraction
+        daily_rain = max(0.0, rain_mm)
+        gross_inflow = daily_rain * usable_roof_area_sqm * runoff_coefficient
+        # Treat consecutive wet days as one rainfall event. Deduct first flush
+        # only from the first wet day after a dry day, rather than every day.
+        starts_rain_event = daily_rain > 0 and not previous_day_wet
+        inflow = gross_inflow * (1.0 - first_flush_fraction if starts_rain_event else 1.0)
+        previous_day_wet = daily_rain > 0
         total_inflow += inflow
         monthly_inflow[month_index] += inflow
         served = 0.0
@@ -124,10 +133,12 @@ def simulate_tank_year(
         monthly_unmet[month_index] += unmet_today
         monthly_recharge_overflow[month_index] += recharged_today
         monthly_lost_overflow[month_index] += lost_today
+        monthly_peak_storage[month_index] = max(monthly_peak_storage[month_index], tank_level)
         monthly_ending_storage[month_index] = tank_level
         day_in_month += 1
 
     total_demand = daily_demand_litres * len(rainfall_mm)
+    # This is annual demand coverage, not a count of days with full service.
     reliability = (useful / total_demand * 100.0) if total_demand else 100.0
     return TankYearResult(
         year=year,
@@ -144,6 +155,7 @@ def simulate_tank_year(
         monthly_recharge_overflow_litres=[round(value, 2) for value in monthly_recharge_overflow],
         monthly_lost_overflow_litres=[round(value, 2) for value in monthly_lost_overflow],
         monthly_ending_storage_litres=[round(value, 2) for value in monthly_ending_storage],
+        monthly_peak_storage_litres=[round(value, 2) for value in monthly_peak_storage],
     )
 
 
@@ -213,7 +225,7 @@ def size_tanks(
         selection_status = "meets_reliability_target"
         selection_reason = (
             f"Smallest tested tank meeting the {reliability_target_percent:g}% "
-            "average reliability target."
+            "average eligible-demand coverage target."
         )
         reliability_target_met = True
     else:
@@ -259,7 +271,7 @@ def size_tanks(
 
             selection_status = "optimal_diminishing_returns_knee"
             selection_reason = (
-                f"Full-year reliability target of {reliability_target_percent:g}% is constrained by Mumbai's 8 dry months. "
+                f"Full-year eligible-demand coverage target of {reliability_target_percent:g}% is constrained by Mumbai's 8 dry months. "
                 f"Selected {int(selected['capacity_litres']):,} L as the optimal economic capacity "
                 f"(marginal return threshold: {MARGINAL_RETURN_FLOOR} L useful water per additional L of tank capacity per year)."
             )

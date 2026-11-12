@@ -100,6 +100,7 @@ class ROIRequest(BaseModel):
     gross_roof_area_sqm: Optional[float] = Field(default=None, gt=0)
     roof_surface_type: str = "concrete"
     first_flush_fraction: float = Field(default=DEFAULT_FIRST_FLUSH_FRACTION, ge=0, lt=1)
+    rainfall_reduction_percent: float = Field(default=0, ge=0, le=50)
 
     @field_validator("water_tariff_per_kl")
     @classmethod
@@ -127,11 +128,21 @@ class ROIResponse(BaseModel):
     payback_years: Optional[float]
     total_period_savings: float
     ten_year_savings: float
+    water_balance_annual_usable_litres: Optional[float] = None
     yearly_breakdown: list[YearlyROI]
+
+
+class CostQuoteLine(BaseModel):
+    component: str = Field(..., min_length=1, max_length=100)
+    quantity: float = Field(..., ge=0, allow_inf_nan=False)
+    unit: str = Field(..., min_length=1, max_length=40)
+    unit_cost_inr: float = Field(..., ge=0, allow_inf_nan=False)
+    price_source: str = Field(..., min_length=1, max_length=200)
 
 
 class CostEstimateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    costing_method: Literal["planning_allowance", "itemized_quote"] = "planning_allowance"
     configuration: Literal["storage_only", "recharge_only", "hybrid"] = "storage_only"
     gross_roof_area_sqm: float = Field(..., gt=0, allow_inf_nan=False)
     capex_rate_per_sqm: float = Field(default=600.0, ge=0, allow_inf_nan=False)
@@ -140,6 +151,8 @@ class CostEstimateRequest(BaseModel):
     recharge_connection_cost_inr: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     annual_maintenance_rate: float = Field(default=0.03, ge=0, allow_inf_nan=False)
     fixed_annual_opex_inr: float = Field(default=0, ge=0, allow_inf_nan=False)
+    itemized_capex: list[CostQuoteLine] = Field(default_factory=list)
+    itemized_quote_complete: bool = False
 
 
 class CostLineItem(BaseModel):
@@ -152,6 +165,7 @@ class CostLineItem(BaseModel):
 
 
 class CostEstimateResponse(BaseModel):
+    costing_method: Literal["planning_allowance", "itemized_quote"] = "planning_allowance"
     configuration: str
     capex_breakdown: list[CostLineItem]
     capex_subtotal_inr: float
@@ -312,7 +326,7 @@ class TankSizerRequest(BaseModel):
         default=40.0,
         gt=0,
         le=100,
-        description="Reliability target percent. 40% is realistic for MMR monsoon-concentrated rainfall.",
+        description="Eligible-demand coverage target percent. 40% is a planning threshold for MMR's monsoon-concentrated rainfall.",
     )
     recharge_enabled: bool = False
     recharge_capacity_litres_per_day: float = Field(

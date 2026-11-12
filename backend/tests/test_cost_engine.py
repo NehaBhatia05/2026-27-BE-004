@@ -25,6 +25,59 @@ class CostEngineTests(unittest.TestCase):
         )
         self.assertIn("not a contractor quotation", result.assumptions[0])
 
+    def test_itemized_quote_replaces_planning_allowances_and_calculates_line_totals(self):
+        result = estimate_project_cost(
+            CostEstimateRequest(
+                costing_method="itemized_quote",
+                gross_roof_area_sqm=100,
+                itemized_capex=[
+                    {
+                        "component": "Gutters and downpipes",
+                        "quantity": 25,
+                        "unit": "m",
+                        "unit_cost_inr": 120,
+                        "price_source": "Vendor quote, 2026-11-03",
+                    },
+                    {
+                        "component": "Filter",
+                        "quantity": 1,
+                        "unit": "system",
+                        "unit_cost_inr": 5000,
+                        "price_source": "Vendor quote, 2026-11-03",
+                    },
+                ],
+                itemized_quote_complete=True,
+            )
+        )
+
+        self.assertEqual(result.capex_subtotal_inr, 8000)
+        self.assertEqual(result.total_capex_inr, 8000)
+        self.assertEqual(result.annual_opex_inr, 240)
+        self.assertEqual(result.costing_method, "itemized_quote")
+        self.assertEqual(len(result.capex_breakdown), 2)
+
+    def test_incomplete_itemized_quote_does_not_produce_roi_capex(self):
+        result = estimate_project_cost(
+            CostEstimateRequest(
+                costing_method="itemized_quote",
+                gross_roof_area_sqm=100,
+                itemized_capex=[
+                    {
+                        "component": "Gutters",
+                        "quantity": 1,
+                        "unit": "system",
+                        "unit_cost_inr": 1000,
+                        "price_source": "Vendor quote",
+                    }
+                ],
+            )
+        )
+
+        self.assertEqual(result.capex_subtotal_inr, 1000)
+        self.assertFalse(result.capex_complete)
+        self.assertIsNone(result.total_capex_inr)
+        self.assertIsNone(result.annual_opex_inr)
+
     def test_recharge_price_is_required_for_complete_cost_and_opex(self):
         result = estimate_project_cost(
             CostEstimateRequest(

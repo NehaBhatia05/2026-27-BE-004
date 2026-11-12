@@ -78,6 +78,40 @@ class RoiEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertIn("not fabricated", response.json()["detail"])
 
+    def test_roi_uses_daily_water_balance_and_applies_rainfall_reduction(self):
+        # At 1 mm/day, inflow remains below daily demand, so a 50% rainfall
+        # reduction must halve usable rainwater rather than being masked by tank overflow.
+        rainfall = {2021: [1.0] * 365}
+        payload = {
+            "daily_demand_lpd": 100,
+            "annual_yield_litres": 100000,
+            "tank_capacity_litres": 1000,
+            "water_tariff_per_kl": 15,
+            "installation_cost": 10000,
+            "years": 10,
+            "annual_tanker_spend": 20000,
+            "annual_tanker_volume_litres": 10000,
+            "annual_municipal_spend": 5000,
+            "latitude": 19.0,
+            "longitude": 72.0,
+            "gross_roof_area_sqm": 100,
+            "roof_surface_type": "concrete",
+            "first_flush_fraction": 0.05,
+        }
+        with patch("routers.roi.fetch_daily_rainfall", new=AsyncMock(return_value=rainfall)):
+            baseline = self.client.post("/api/roi/simulate", json=payload)
+            stressed = self.client.post(
+                "/api/roi/simulate",
+                json={**payload, "rainfall_reduction_percent": 50},
+            )
+
+        self.assertEqual(baseline.status_code, 200, baseline.text)
+        self.assertEqual(stressed.status_code, 200, stressed.text)
+        baseline_usable = baseline.json()["water_balance_annual_usable_litres"]
+        stressed_usable = stressed.json()["water_balance_annual_usable_litres"]
+        self.assertGreater(baseline_usable, 0)
+        self.assertAlmostEqual(stressed_usable, baseline_usable * 0.5, delta=1)
+
 
 if __name__ == "__main__":
     unittest.main()

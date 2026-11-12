@@ -13,8 +13,8 @@ RAINFALL_END_YEAR = datetime.now(timezone.utc).year - 1
 RAINFALL_START_YEAR = RAINFALL_END_YEAR - RAINFALL_YEARS + 1
 
 
-# Regional fallback climatological normals (MMR / Mumbai standard IMD 15-year baseline)
-# Monthly rainfall in mm: Jan -> Dec (Annual total ≈ 2,427.6 mm)
+# Regional fallback climatological normals (MMR / Mumbai planning baseline).
+# Monthly rainfall in mm: Jan -> Dec (sum of listed months = 2,379.6 mm).
 MMR_FALLBACK_MONTHLY_RAINFALL: list[float] = [
     1.2, 1.5, 2.8, 1.8, 35.4, 465.2, 820.5, 560.8, 385.6, 92.4, 9.8, 2.6
 ]
@@ -63,6 +63,8 @@ def aggregate_monthly_rainfall(data: dict) -> list[float]:
     """Aggregate an Open-Meteo daily response into 12 historical month means."""
     daily_dates: list[str] = data["daily"]["time"]
     daily_precip: list[float] = data["daily"]["precipitation_sum"]
+    if len(daily_dates) != len(daily_precip):
+        raise ValueError("Rainfall response had mismatched date and precipitation lengths.")
 
     # Aggregate daily → calendar-year/month totals, then average each month
     # across the historical years. This preserves seasonal structure without
@@ -71,11 +73,38 @@ def aggregate_monthly_rainfall(data: dict) -> list[float]:
         year: [0.0] * 12
         for year in range(RAINFALL_START_YEAR, RAINFALL_END_YEAR + 1)
     }
+    monthly_day_counts = {
+        year: [0] * 12
+        for year in range(RAINFALL_START_YEAR, RAINFALL_END_YEAR + 1)
+    }
+    observed_dates: set[str] = set()
     for date_str, precip in zip(daily_dates, daily_precip):
-        year = int(date_str[:4])
-        month_idx = int(date_str[5:7]) - 1   # "YYYY-MM-DD" → 0-indexed month
+        try:
+            observation_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            year = observation_date.year
+            month_idx = observation_date.month - 1
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Rainfall response contained an invalid date.") from exc
+        if date_str in observed_dates:
+            raise ValueError("Rainfall response contained a duplicate date.")
+        observed_dates.add(date_str)
         if year in monthly_by_year:
-            monthly_by_year[year][month_idx] += precip or 0.0
+            if precip is None:
+                raise ValueError("Rainfall response contained missing precipitation data.")
+            try:
+                value = float(precip)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Rainfall response contained non-numeric precipitation data.") from exc
+            if not isfinite(value) or value < 0:
+                raise ValueError("Rainfall response contained invalid precipitation data.")
+            monthly_by_year[year][month_idx] += value
+            monthly_day_counts[year][month_idx] += 1
+
+    for year in monthly_by_year:
+        for month_idx in range(12):
+            expected_days = monthrange(year, month_idx + 1)[1]
+            if monthly_day_counts[year][month_idx] != expected_days:
+                raise ValueError(f"Rainfall response was incomplete for {year:04d}-{month_idx + 1:02d}.")
 
     year_count = RAINFALL_END_YEAR - RAINFALL_START_YEAR + 1
     monthly_average = [
@@ -124,7 +153,7 @@ async def fetch_daily_rainfall(
             status_code=502,
             detail="Daily rainfall response had mismatched date and precipitation lengths.",
         )
-    years: dict[int, list[float]] = {}
+    dates_by_year: dict[int, dict[str, float]] = {}
     for date_str, rain in zip(dates, precipitation):
         if rain is None:
             raise HTTPException(
@@ -132,7 +161,8 @@ async def fetch_daily_rainfall(
                 detail="Daily rainfall response contained a null precipitation value.",
             )
         try:
-            year = int(date_str[:4])
+            observation_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            year = observation_date.year
             value = float(rain)
         except (TypeError, ValueError) as exc:
             raise HTTPException(
@@ -149,13 +179,17 @@ async def fetch_daily_rainfall(
                 status_code=502,
                 detail="Daily rainfall response contained a negative precipitation value.",
             )
-        years.setdefault(year, []).append(value)
+        year_dates = dates_by_year.setdefault(year, {})
+        if date_str in year_dates:
+            raise HTTPException(status_code=502, detail="Daily rainfall response contained a duplicate date.")
+        year_dates[date_str] = value
 
     complete_years: dict[int, list[float]] = {}
-    for year, values in years.items():
+    for year, date_values in dates_by_year.items():
         expected_days = 366 if (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)) else 365
-        if len(values) == expected_days:
-            complete_years[year] = values
+        expected_dates = [(datetime(year, 1, 1) + timedelta(days=offset)).date().isoformat() for offset in range(expected_days)]
+        if len(date_values) == expected_days and all(date in date_values for date in expected_dates):
+            complete_years[year] = [date_values[date] for date in expected_dates]
     return complete_years
 
 

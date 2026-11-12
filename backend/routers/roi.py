@@ -18,6 +18,12 @@ from services.configuration_comparison import compare_configurations
 router = APIRouter()
 
 
+def _reduce_daily_rainfall(rainfall_mm: list[float], reduction_percent: float) -> list[float]:
+    """Apply the same non-negative rainfall stress factor to each daily value."""
+    scale = 1.0 - reduction_percent / 100.0
+    return [daily_rain * scale for daily_rain in rainfall_mm]
+
+
 @router.post("/simulate", response_model=ROIResponse)
 async def roi_simulate(payload: ROIRequest) -> ROIResponse:
     """
@@ -41,7 +47,7 @@ async def roi_simulate(payload: ROIRequest) -> ROIResponse:
         )
         annual_usable_yield_litres = sum(
             simulate_tank_year(
-                rainfall_mm=rainfall,
+                rainfall_mm=_reduce_daily_rainfall(rainfall, payload.rainfall_reduction_percent),
                 tank_capacity_litres=payload.tank_capacity_litres,
                 daily_demand_litres=payload.daily_demand_lpd,
                 usable_roof_area_sqm=payload.gross_roof_area_sqm * USABILITY_FACTOR,
@@ -94,9 +100,9 @@ async def roi_configuration_comparison(
 @router.post("/monte-carlo", response_model=MonteCarloResponse)
 async def roi_monte_carlo(payload: MonteCarloRequest) -> MonteCarloResponse:
     """
-    Run 1,000-scenario Monte Carlo ROI simulation.
-    Samples monthly rainfall from the P10–P90 historical percentile table
-    and returns the probability distribution of break-even year.
+    Run Monte Carlo ROI scenarios through the shared daily water-balance engine.
+    Prefer resampled complete historical daily rainfall years when coordinates
+    are supplied; legacy monthly inputs remain supported as a compatibility path.
 
     Output: "72% chance of break-even by Year 3, 91% by Year 4."
     """

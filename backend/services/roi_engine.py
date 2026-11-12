@@ -133,5 +133,10 @@ def simulate_roi(
         payback_years=payback_years,
         total_period_savings=round(cumulative_savings, 2),
         ten_year_savings=round(ten_year_savings, 2),
+        water_balance_annual_usable_litres=(
+            round(annual_usable_yield_litres, 2)
+            if annual_usable_yield_litres is not None
+            else None
+        ),
         yearly_breakdown=yearly_breakdown,
     )

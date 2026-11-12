@@ -115,7 +115,9 @@ export const sizeTank = (payload) =>
   api.post("/api/roi/tank-sizer", payload).then((r) => r.data);
 
 /**
- * Calculates itemized CAPEX/OPEX from configurable planning assumptions.
+ * Calculates CAPEX/OPEX from planning rates or user-entered quotation line items.
+ * Quote mode requires the user to confirm that all applicable cost items are included
+ * before the backend returns a complete total for ROI.
  * @param {object} payload
  */
 export const estimateProjectCost = (payload) =>

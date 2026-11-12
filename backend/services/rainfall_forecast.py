@@ -1,6 +1,8 @@
 
 """Auto-SARIMA rainfall forecasting service."""
 
+from copy import deepcopy
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -49,6 +51,12 @@ def forecast_monthly_rainfall(
     if (rainfall < 0).any():
         raise ValueError("Rainfall values cannot be negative.")
 
+    return deepcopy(_forecast_validated_history(tuple(float(value) for value in rainfall), periods))
+
+
+@lru_cache(maxsize=32)
+def _forecast_validated_history(history: tuple[float, ...], periods: int) -> dict[str, Any]:
+    """Reuse a fitted forecast when the same rainfall series is requested again."""
     try:
         from pmdarima import auto_arima
     except ImportError as exc:
@@ -78,13 +86,13 @@ def forecast_monthly_rainfall(
     }
 
     try:
-        model = auto_arima(rainfall, **search_options)
+        model = auto_arima(history, **search_options)
     except ValueError as exc:
         # Retry only with constrained differencing if the original search
         # fails. Do not hide unrelated failures by returning fake values.
         try:
             model = auto_arima(
-                rainfall,
+                history,
                 d=0,
                 D=0,
                 **search_options,
@@ -149,5 +157,5 @@ def forecast_monthly_rainfall(
             "order": list(model.order),
             "seasonal_order": list(model.seasonal_order),
         },
-        "training_months": len(rainfall),
+        "training_months": len(history),
     }
